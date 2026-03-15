@@ -217,8 +217,10 @@ public with sharing class UnitOfWork
 
         // Sets the lookup fields with the Id from the parent records. Note that this will fail if the sobjectTypeOperationOrder was configured incorrectly leading to the parents not being inserted yet.
         public void applyRelationshipsForSobjectType( SObjectType sobjectType ) {
-            for ( Relationship thisRelationship : relationshipsBySobjectType.get( sobjectType ) ) {
-                thisRelationship.getRecord().put( thisRelationship.getRelationshipField(), thisRelationship.getParentRecord().Id );
+            if ( relationshipsBySobjectType.containsKey( sobjectType ) ) {
+                for ( Relationship thisRelationship : relationshipsBySobjectType.get( sobjectType ) ) {
+                    thisRelationship.getRecord().put( thisRelationship.getRelationshipField(), thisRelationship.getParentRecord().Id );
+                }
             }
         }
     }
