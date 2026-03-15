@@ -9,7 +9,6 @@ public with sharing class UnitOfWork
     private Map<SObjectType, List<SObject>> newRecordsBySobjectType = new Map<SObjectType, List<SObject>>();
     private Map<SObjectType, Map<Id, SObject>> dirtyRecordsBySobjectTypeAndRecordId = new Map<SObjectType, Map<Id, SObject>>();
     private Map<SObjectType, Set<Id>> deletedRecordIdsBySobjectType = new Map<SObjectType, Set<Id>>();
-    private Map<SObjectType, Set<Id>> permanentlyDeletedRecordIdsBySobjectType = new Map<SObjectType, Set<Id>>();
     private Relationships relationships = new Relationships();
     private Set<SobjectType> sobjectTypesToBypassSharing = new Set<SobjectType>();
     private Set<SobjectType> sobjectTypesToBypassPermissions = new Set<SobjectType>();
@@ -47,15 +46,6 @@ public with sharing class UnitOfWork
         validate( sobjectTypeAllowed( record ), 'registerDeleted called with a record whose SObjectType is not in the sobjectTypeOperationOrder' );
 
         deletedRecord( record );
-    }
-
-    // Registers a record as permanently deleted so that the unit of work will delete it on commit and remove it from the recycle bin.
-    public void registerPermanentlyDeleted( SObject record ) {
-        validate( record != null, 'registerPermanentlyDeleted called with a null record' );
-        validate( record.Id != null, 'registerPermanentlyDeleted called with a record that does not have an Id' );
-        validate( sobjectTypeAllowed( record ), 'registerPermanentlyDeleted called with a record whose SObjectType is not in the sobjectTypeOperationOrder' );
-
-        permanentlyDeletedRecord( record );
     }
 
     // Registers a relationship between a record and a parent record so that the unit of work can set the relationship field during commit.
@@ -109,7 +99,58 @@ public with sharing class UnitOfWork
     }
 
     private void insertRecordsForSobjectType( SObjectType sobjectType ) {
-        
+
+        List<SObject> recordsToInsert = newRecordsBySobjectType.get( sobjectType );
+
+        if ( recordsToInsert == null || recordsToInsert.isEmpty() ) {
+            return;
+        }
+
+        AccessLevel accessLevel = sobjectTypesToBypassPermissions.contains( sobjectType ) ? AccessLevel.SYSTEM_MODE : AccessLevel.USER_MODE;
+        Boolean bypassSharing = sobjectTypesToBypassSharing.contains( sobjectType );
+
+        if ( bypassSharing ) {
+            new WithoutSharing().insertRecords( recordsToInsert, accessLevel );
+        }
+        else {
+            Database.insert( recordsToInsert, accessLevel );
+        }
+    }
+
+    private void updateRecordsForSobjectType( SObjectType sobjectType ) {
+        List<SObject> recordsToUpdate = dirtyRecordsBySobjectTypeAndRecordId.get( sobjectType ).values();
+
+        if ( recordsToUpdate == null || recordsToUpdate.isEmpty() ) {
+            return;
+        }
+
+        AccessLevel accessLevel = sobjectTypesToBypassPermissions.contains( sobjectType ) ? AccessLevel.SYSTEM_MODE : AccessLevel.USER_MODE;
+        Boolean bypassSharing = sobjectTypesToBypassSharing.contains( sobjectType );
+
+        if ( bypassSharing ) {
+            new WithoutSharing().updateRecords( recordsToUpdate, accessLevel );
+        }
+        else {
+            Database.update( recordsToUpdate, accessLevel );
+        }
+    }
+
+    private void deleteRecordsForSobjectType( SObjectType sobjectType ) {
+        List<Id> recordIdsToDelete = new List<Id>( deletedRecordIdsBySobjectType.get( sobjectType ) );
+
+        if ( recordIdsToDelete == null || recordIdsToDelete.isEmpty() ) {
+            return;
+        }
+
+        AccessLevel accessLevel = sobjectTypesToBypassPermissions.contains( sobjectType ) ? AccessLevel.SYSTEM_MODE : AccessLevel.USER_MODE;
+        Boolean bypassSharing = sobjectTypesToBypassSharing.contains( sobjectType );
+
+        if ( bypassSharing ) {
+            new WithoutSharing().deleteRecords( recordIdsToDelete, accessLevel );
+        }
+        else {
+            Database.delete( recordIdsToDelete, accessLevel );
+        }
     }
 
     private void newRecord( SObject record ) {
@@ -145,16 +186,6 @@ public with sharing class UnitOfWork
         deletedRecordIdsBySobjectType.get( recordSobjectType ).add( record.Id );
     }
 
-    private void permanentlyDeletedRecord( SObject record ) {
-        SobjectType recordSobjectType = record.getSObjectType();
-
-        if ( !permanentlyDeletedRecordIdsBySobjectType.containsKey( recordSobjectType ) ) {
-            permanentlyDeletedRecordIdsBySobjectType.put( recordSobjectType, new Set<Id>() );
-        }
-
-        permanentlyDeletedRecordIdsBySobjectType.get( recordSobjectType ).add( record.Id );
-    }
-
     private class Relationships {
         private Map<SobjectType, List<Relationship>> relationshipsBySobjectType = new Map<SobjectType, List<Relationship>>();
 
@@ -173,6 +204,20 @@ public with sharing class UnitOfWork
             for ( Relationship thisRelationship : relationshipsBySobjectType.get( sobjectType ) ) {
                 thisRelationship.getRecord().put( thisRelationship.getRelationshipField(), thisRelationship.getParentRecord().Id );
             }
+        }
+    }
+
+    private without sharing class WithoutSharing {
+        public void insertRecords( List<SObject> records, AccessLevel accessLevel ) {
+            Database.insert( records, accessLevel );
+        }
+
+        public void updateRecords( List<SObject> records, AccessLevel accessLevel ) {
+            Database.update( records, accessLevel );
+        }
+
+        public void deleteRecords( List<Id> recordIds, AccessLevel accessLevel ) {
+            Database.delete( recordIds, accessLevel );
         }
     }
 
