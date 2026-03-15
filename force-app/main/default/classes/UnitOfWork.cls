@@ -4,11 +4,11 @@ public with sharing class UnitOfWork
     public class ValidationException extends UnitOfWorkException {}
     public class CommitException extends UnitOfWorkException {}
 
-    private List<SObjectType> sobjectTypeOperationOrder;
+    @testVisible private List<SObjectType> sobjectTypeOperationOrder;
     private List<SObjectType> sobjectTypeOperationOrderInReverse;
 
-    private Map<SObjectType, List<SObject>> newRecordsBySobjectType = new Map<SObjectType, List<SObject>>();
-    private Map<SObjectType, Map<Id, SObject>> dirtyRecordsBySobjectTypeAndRecordId = new Map<SObjectType, Map<Id, SObject>>();
+    @testVisible private Map<SObjectType, List<SObject>> newRecordsBySobjectType = new Map<SObjectType, List<SObject>>();
+    @testVisible private Map<SObjectType, Map<Id, SObject>> dirtyRecordsBySobjectTypeAndRecordId = new Map<SObjectType, Map<Id, SObject>>();
     private Map<SObjectType, Set<Id>> deletedRecordIdsBySobjectType = new Map<SObjectType, Set<Id>>();
     private Relationships relationships = new Relationships();
     private Set<SobjectType> sobjectTypesToBypassSharing = new Set<SobjectType>();
