@@ -5,6 +5,7 @@ public with sharing class UnitOfWork
     public class CommitException extends UnitOfWorkException {}
 
     private List<SObjectType> sobjectTypeOperationOrder;
+    private List<SObjectType> sobjectTypeOperationOrderInReverse;
 
     private Map<SObjectType, List<SObject>> newRecordsBySobjectType = new Map<SObjectType, List<SObject>>();
     private Map<SObjectType, Map<Id, SObject>> dirtyRecordsBySobjectTypeAndRecordId = new Map<SObjectType, Map<Id, SObject>>();
@@ -17,7 +18,12 @@ public with sharing class UnitOfWork
         validate( sobjectTypeOperationOrder != null, 'UnitOfWork constructed with a null sobjectTypeOperationOrder' );
         validate( !sobjectTypeOperationOrder.isEmpty(), 'UnitOfWork constructed with an empty sobjectTypeOperationOrder' );
 
-        this.sobjectTypeOperationOrder = sobjectTypeOperationOrder;
+        this.sobjectTypeOperationOrder = sobjectTypeOperationOrder.clone();
+        this.sobjectTypeOperationOrderInReverse = new List<SobjectType>();
+
+        for ( Integer i = this.sobjectTypeOperationOrder.size() - 1; i >= 0; i-- ) {
+            this.sobjectTypeOperationOrderInReverse.add( this.sobjectTypeOperationOrder[ i ] );
+        }
     }
 
     // Registers a new record as new so that the unit of work will insert it on commit.
@@ -85,12 +91,22 @@ public with sharing class UnitOfWork
         Savepoint preCommitSavepoint = Database.setSavepoint();
 
         try {
-            // todo: 1 perform non-destructive dml operations by looping through sobjectTypeOperationOrder:
-                // Applying any relationships for the sobject type
-                // inserting the sobject type
-                // updating the sobject type
-            // todo: 2 perform destructive dml operations by looping through sobjectTypeOperationOrder in reverse:
-                // deleting the sobject type
+            // Perform non-destructive DML operations by looping through sobjectTypeOperationOrder
+            for ( SobjectType thisSobjectType : sobjectTypeOperationOrder ) {
+                // Apply any relationships for the sobject type
+                relationships.applyRelationshipsForSobjectType( thisSobjectType );
+
+                // Insert the sobject type
+                insertRecordsForSobjectType( thisSobjectType );
+
+                // Update the sobject type
+                updateRecordsForSobjectType( thisSobjectType );
+            }
+            // Perform destructive DML operations by looping through sobjectTypeOperationOrderInReverse
+            for ( SobjectType thisSobjectType : sobjectTypeOperationOrderInReverse ) {
+                // Delete the sobject type
+                deleteRecordsForSobjectType( thisSobjectType );
+            }
         }
         catch ( Exception ex ) {
             Database.rollback( preCommitSavepoint );
