@@ -5,14 +5,14 @@ public with sharing class UnitOfWork
     public class CommitException extends UnitOfWorkException {}
 
     @testVisible private List<SObjectType> sobjectTypeOperationOrder;
-    private List<SObjectType> sobjectTypeOperationOrderInReverse;
+    @testVisible private List<SObjectType> sobjectTypeOperationOrderInReverse;
 
     @testVisible private Map<SObjectType, List<SObject>> newRecordsBySobjectType = new Map<SObjectType, List<SObject>>();
     @testVisible private Map<SObjectType, Map<Id, SObject>> dirtyRecordsBySobjectTypeAndRecordId = new Map<SObjectType, Map<Id, SObject>>();
-    private Map<SObjectType, Set<Id>> deletedRecordIdsBySobjectType = new Map<SObjectType, Set<Id>>();
-    private Relationships relationships = new Relationships();
-    private Set<SobjectType> sobjectTypesToBypassSharing = new Set<SobjectType>();
-    private Set<SobjectType> sobjectTypesToBypassPermissions = new Set<SobjectType>();
+    @testVisible private Map<SObjectType, Set<Id>> deletedRecordIdsBySobjectType = new Map<SObjectType, Set<Id>>();
+    @testVisible private Relationships relationships = new Relationships();
+    @testVisible private Set<SobjectType> sobjectTypesToBypassSharing = new Set<SobjectType>();
+    @testVisible private Set<SobjectType> sobjectTypesToBypassPermissions = new Set<SobjectType>();
 
     public UnitOfWork( List<SObjectType> sobjectTypeOperationOrder ) {
         validate( sobjectTypeOperationOrder != null, 'UnitOfWork constructed with a null sobjectTypeOperationOrder' );
@@ -203,7 +203,7 @@ public with sharing class UnitOfWork
     }
 
     private class Relationships {
-        private Map<SobjectType, List<Relationship>> relationshipsBySobjectType = new Map<SobjectType, List<Relationship>>();
+        @testVisible private Map<SobjectType, List<Relationship>> relationshipsBySobjectType = new Map<SobjectType, List<Relationship>>();
 
         public void addRelationship( SObject record, SObjectField relationshipField, SObject parentRecord ) {
             SobjectType recordSobjectType = record.getSObjectType();
