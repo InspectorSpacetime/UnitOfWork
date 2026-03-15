@@ -12,8 +12,7 @@ public with sharing class UnitOfWork
     private Map<SObjectType, Set<Id>> permanentlyDeletedRecordIdsBySobjectType = new Map<SObjectType, Set<Id>>();
     private Relationships relationships = new Relationships();
     private Set<SobjectType> sobjectTypesToBypassSharing = new Set<SobjectType>();
-    private Set<SobjectType> sobjectTypesToBypassCRUD = new Set<SobjectType>();
-    private Set<SobjectType> sobjectTypesToBypassFLS = new Set<SobjectType>();
+    private Set<SobjectType> sobjectTypesToBypassPermissions = new Set<SobjectType>();
 
     public UnitOfWork( List<SObjectType> sobjectTypeOperationOrder ) {
         validate( sobjectTypeOperationOrder != null, 'UnitOfWork constructed with a null sobjectTypeOperationOrder' );
@@ -75,6 +74,22 @@ public with sharing class UnitOfWork
         relationships.addRelationship( record, relationshipField, parentRecord );
     }
 
+    // Bypasses sharing rules for the given SObjectType during commitWork.
+    public void bypassSharing( SObjectType type ) {
+        validate( type != null, 'bypassSharing called with a null type' );
+        validate( sobjectTypeAllowed( type ), 'bypassSharing called with a type that was not specified in the sobjectTypeOperationOrder when the UnitOfWork was constructed' );
+
+        sobjectTypesToBypassSharing.add( type );
+    }
+
+    // Bypasses CRUD rules and FLS rules for the given SObjectType during commitWork.
+    public void bypassPermissions( SObjectType type ) {
+        validate( type != null, 'bypassPermissions called with a null type' );
+        validate( sobjectTypeAllowed( type ), 'bypassPermissions called with a type that was not specified in the sobjectTypeOperationOrder when the UnitOfWork was constructed' );
+
+        sobjectTypesToBypassPermissions.add( type );
+    }
+
     // Commits all the changes to the database.
     public void commitWork() {
         Savepoint preCommitSavepoint = Database.setSavepoint();
@@ -93,28 +108,8 @@ public with sharing class UnitOfWork
         }
     }
 
-    // Bypasses sharing rules for the given SObjectType during commitWork.
-    public void bypassSharing( SObjectType type ) {
-        validate( type != null, 'bypassSharing called with a null type' );
-        validate( sobjectTypeAllowed( type ), 'bypassSharing called with a type that was not specified in the sobjectTypeOperationOrder when the UnitOfWork was constructed' );
-
-        sobjectTypesToBypassSharing.add( type );
-    }
-
-    // Bypasses CRUD rules for the given SObjectType during commitWork.
-    public void bypassCRUD( SObjectType type ) {
-        validate( type != null, 'bypassCRUD called with a null type' );
-        validate( sobjectTypeAllowed( type ), 'bypassCRUD called with a type that was not specified in the sobjectTypeOperationOrder when the UnitOfWork was constructed' );
-
-        sobjectTypesToBypassCRUD.add( type );
-    }
-
-    // Bypasses FLS rules for the given SObjectType during commitWork.
-    public void bypassFLS( SObjectType type ) {
-        validate( type != null, 'bypassFLS called with a null type' );
-        validate( sobjectTypeAllowed( type ), 'bypassFLS called with a type that was not specified in the sobjectTypeOperationOrder when the UnitOfWork was constructed' );
-
-        sobjectTypesToBypassFLS.add( type );
+    private void insertRecordsForSobjectType( SObjectType sobjectType ) {
+        
     }
 
     private void newRecord( SObject record ) {
