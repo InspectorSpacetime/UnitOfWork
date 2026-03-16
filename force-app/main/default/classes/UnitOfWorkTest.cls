@@ -422,15 +422,15 @@ private class UnitOfWorkTest {
         UnitOfWork.ValidationException thrownException;
 
         Test.startTest();
-        try {
-            unitOfWork.bypassSharing( nullSobjectType );
-        }
-        catch ( UnitOfWork.ValidationException ex ) {
-            thrownException = ex;
-        }
-        Test.stopTest();
+    try {
+        unitOfWork.bypassSharing( nullSobjectType );
+    }
+    catch ( UnitOfWork.ValidationException ex ) {
+        thrownException = ex;
+    }
+    Test.stopTest();
 
-        Assert.isNotNull( thrownException, 'bypassSharing, when called with a null type, should throw an exception' );
+    Assert.isNotNull( thrownException, 'bypassSharing, when called with a null type, should throw an exception' );
         Assert.areEqual( 'bypassSharing called with a null type', thrownException.getMessage(), 'bypassSharing, when called with a null type, should throw a ValidationException' );
     }
 
@@ -442,15 +442,15 @@ private class UnitOfWorkTest {
         UnitOfWork.ValidationException thrownException;
 
         Test.startTest();
-        try {
-            unitOfWork.bypassSharing( sobjectTypeNotInSobjectTypeOperationOrder );
-        }
-        catch ( UnitOfWork.ValidationException ex ) {
-            thrownException = ex;
-        }
-        Test.stopTest();
+    try {
+        unitOfWork.bypassSharing( sobjectTypeNotInSobjectTypeOperationOrder );
+    }
+    catch ( UnitOfWork.ValidationException ex ) {
+        thrownException = ex;
+    }
+    Test.stopTest();
 
-        Assert.isNotNull( thrownException, 'bypassSharing, when called with a type not in the sobjectTypeOperationOrder, should throw an exception' );
+    Assert.isNotNull( thrownException, 'bypassSharing, when called with a type not in the sobjectTypeOperationOrder, should throw an exception' );
         Assert.areEqual( 'bypassSharing called with a type that was not specified in the sobjectTypeOperationOrder when the UnitOfWork was constructed', thrownException.getMessage(), 'bypassSharing, when called with a type not in the sobjectTypeOperationOrder, should throw a ValidationException' );
     }
 
@@ -460,29 +460,29 @@ private class UnitOfWorkTest {
         SobjectType sobjectTypeToBypassSharing = Account.SObjectType;
 
         Test.startTest();
-        unitOfWork.bypassSharing( sobjectTypeToBypassSharing );
-        Test.stopTest();
+    unitOfWork.bypassSharing( sobjectTypeToBypassSharing );
+    Test.stopTest();
 
-        Assert.isTrue( unitOfWork.sobjectTypesToBypassSharing.contains( Account.SObjectType ), 'bypassSharing, when called with a valid SobjectType, should register the sharing bypass' );
-    }
+    Assert.isTrue( unitOfWork.sobjectTypesToBypassSharing.contains( Account.SObjectType ), 'bypassSharing, when called with a valid SobjectType, should register the sharing bypass' );
+}
 
-    @isTest
-    private static void bypassPermissions_whenCalledWithNullSobjectType_throwsValidationException() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
+@isTest
+private static void bypassPermissions_whenCalledWithNullSobjectType_throwsValidationException() {
+    UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
         SObjectType nullSobjectType;
 
         UnitOfWork.ValidationException thrownException;
 
         Test.startTest();
-        try {
-            unitOfWork.bypassPermissions( nullSobjectType );
-        }
-        catch ( UnitOfWork.ValidationException ex ) {
-            thrownException = ex;
-        }
-        Test.stopTest();
+    try {
+        unitOfWork.bypassPermissions( nullSobjectType );
+    }
+    catch ( UnitOfWork.ValidationException ex ) {
+        thrownException = ex;
+    }
+    Test.stopTest();
 
-        Assert.isNotNull( thrownException, 'bypassPermissions, when called with a null type, should throw an exception' );
+    Assert.isNotNull( thrownException, 'bypassPermissions, when called with a null type, should throw an exception' );
         Assert.areEqual( 'bypassPermissions called with a null type', thrownException.getMessage(), 'bypassPermissions, when called with a null type, should throw a ValidationException' );
     }
 
@@ -494,15 +494,15 @@ private class UnitOfWorkTest {
         UnitOfWork.ValidationException thrownException;
 
         Test.startTest();
-        try {
-            unitOfWork.bypassPermissions( sobjectTypeNotInSobjectTypeOperationOrder );
-        }
-        catch ( UnitOfWork.ValidationException ex ) {
-            thrownException = ex;
-        }
-        Test.stopTest();
+    try {
+        unitOfWork.bypassPermissions( sobjectTypeNotInSobjectTypeOperationOrder );
+    }
+    catch ( UnitOfWork.ValidationException ex ) {
+        thrownException = ex;
+    }
+    Test.stopTest();
 
-        Assert.isNotNull( thrownException, 'bypassPermissions, when called with a type not in the sobjectTypeOperationOrder, should throw an exception' );
+    Assert.isNotNull( thrownException, 'bypassPermissions, when called with a type not in the sobjectTypeOperationOrder, should throw an exception' );
         Assert.areEqual( 'bypassPermissions called with a type that was not specified in the sobjectTypeOperationOrder when the UnitOfWork was constructed', thrownException.getMessage(), 'bypassPermissions, when called with a type not in the sobjectTypeOperationOrder, should throw a ValidationException' );
     }
 
@@ -512,28 +512,28 @@ private class UnitOfWorkTest {
         SobjectType sobjectTypeToBypassPermissions = Account.SObjectType;
 
         Test.startTest();
-        unitOfWork.bypassPermissions( sobjectTypeToBypassPermissions );
-        Test.stopTest();
+    unitOfWork.bypassPermissions( sobjectTypeToBypassPermissions );
+    Test.stopTest();
 
-        Assert.isTrue( unitOfWork.sobjectTypesToBypassPermissions.contains( Account.SObjectType ), 'bypassPermissions, when called with a valid SobjectType, should register the permissions bypass' );
-    }
+    Assert.isTrue( unitOfWork.sobjectTypesToBypassPermissions.contains( Account.SObjectType ), 'bypassPermissions, when called with a valid SobjectType, should register the permissions bypass' );
+}
 
-    @isTest
-    private static void commitWork_whenCalledWithNoRegistrations_issuesNoDmlStatements() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
+@isTest
+private static void commitWork_whenCalledWithNoRegistrations_issuesNoDmlStatements() {
+    UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
 
         Integer dmlStatementsIssuedBefore = Limits.getDmlStatements();
 
         Test.startTest();
-        unitOfWork.commitWork();
-        Test.stopTest();
+    unitOfWork.commitWork();
+    Test.stopTest();
 
-        Integer dmlStatementsIssuedAfter = Limits.getDmlStatements();
+    Integer dmlStatementsIssuedAfter = Limits.getDmlStatements();
 
-        Assert.areEqual( dmlStatementsIssuedBefore, dmlStatementsIssuedAfter, 'commitWork, when called with no registrations, should issue no Dml statements' );
-    }
+    Assert.areEqual( dmlStatementsIssuedBefore, dmlStatementsIssuedAfter, 'commitWork, when called with no registrations, should issue no Dml statements' );
+}
 
-    @isTest
+@isTest
     private static void commitWork_whenCalledAfterRelationshipRegistration_createsRecords() {
         UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
 
@@ -559,15 +559,15 @@ private class UnitOfWorkTest {
         Integer dmlRowsIssuedAfter;
 
         Test.startTest();
-            System.runAs( testUser ) {
-                dmlStatementsIssuedBefore = Limits.getDmlStatements();
-                dmlRowsIssuedBefore = Limits.getDmlRows();
+        System.runAs( testUser ) {
+            dmlStatementsIssuedBefore = Limits.getDmlStatements();
+            dmlRowsIssuedBefore = Limits.getDmlRows();
 
-                unitOfWork.commitWork();
+            unitOfWork.commitWork();
 
-                dmlStatementsIssuedAfter = Limits.getDmlStatements();
-                dmlRowsIssuedAfter = Limits.getDmlRows();
-            }
+            dmlStatementsIssuedAfter = Limits.getDmlStatements();
+            dmlRowsIssuedAfter = Limits.getDmlRows();
+        }
         Test.stopTest();
 
         Assert.isNotNull( testAccount.Id, 'commitWork, when called with an after relationship registration, should create the parent record' );
@@ -618,6 +618,50 @@ private class UnitOfWorkTest {
         Assert.areEqual( numberOfAccountsBefore, [ SELECT COUNT() FROM Account ], 'commitWork, when called with an after relationship registration incompatible with sobject order, should roll back the transaction' );
         Assert.areEqual( numberOfContactsBefore, [ SELECT COUNT() FROM Contact ], 'commitWork, when called with an after relationship registration incompatible with sobject order, should roll back the transaction' );
         Assert.areEqual( expectedException, thrownException.getMessage(), 'commitWork, when called after relationship registration incompatible with sobject order, should throw a CommitException' );
+    }
+
+    @isTest
+    private static void commitWork_whenCalledAfterDeletionRegisteredWhereHardDependencyPreventsDeletion_throwsExceptionAndRollsBack() {
+        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contract.SObjectType } );
+
+        User testUser = createUserWithPermissionsForSobjectsAndFields(
+            new Set<SobjectType> { Account.SObjectType, Contract.SObjectType },
+            new Set<SobjectField> {}
+        );
+
+        Account testAccount;
+        Contract testContract;
+
+        System.runAs( testUser ) {
+            testAccount = new Account( Name = 'Test Account' );
+            insert testAccount;
+
+            testContract = new Contract( AccountId = testAccount.Id, Status = 'Draft' );
+            insert testContract;
+
+            testContract.Status = 'Activated';
+            update testContract;
+        }
+
+        UnitOfWork.CommitException thrownException;
+
+        Test.startTest();
+        System.runAs( testUser ) {
+            try {
+                unitOfWork.registerDeleted( testAccount );
+                unitOfWork.commitWork();
+            }
+            catch ( UnitOfWork.CommitException ex ) {
+                thrownException = ex;
+            }
+        }
+        Test.stopTest();
+
+        String expectedException = 'Your attempt to delete Test Account could not be completed because it is associated with the following active contracts';
+        String actualException = thrownException.getMessage();
+
+        Assert.isNotNull( thrownException, 'commitWork, when called after deletion registration where hard dependency prevents deletion, should throw an exception' );
+        Assert.isTrue( actualException.contains( expectedException ), 'commitWork, when called after deletion registration where hard dependency prevents deletion, should throw a CommitException' );
     }
 
     // oh so many commitWork test scenarios...
