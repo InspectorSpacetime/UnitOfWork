@@ -518,8 +518,109 @@ private class UnitOfWorkTest {
         Assert.isTrue( unitOfWork.sobjectTypesToBypassPermissions.contains( Account.SObjectType ), 'bypassPermissions, when called with a valid SobjectType, should register the permissions bypass' );
     }
 
+    @isTest
+    private static void commitWork_whenCalledWithNoRegistrations_issuesNoDmlStatements() {
+        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
+
+        Integer dmlStatementsIssuedBefore = Limits.getDmlStatements();
+
+        Test.startTest();
+        unitOfWork.commitWork();
+        Test.stopTest();
+
+        Integer dmlStatementsIssuedAfter = Limits.getDmlStatements();
+
+        Assert.areEqual( dmlStatementsIssuedBefore, dmlStatementsIssuedAfter, 'commitWork, when called with no registrations, should issue no Dml statements' );
+    }
+
+    @isTest
+    private static void commitWork_whenCalledAfterRelationshipRegistration_createsRecords() {
+        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType, Contact.SObjectType }, new Set<SobjectField> { Contact.AccountId } );
+
+        Account testAccount = new Account( Name = 'Test Account' );
+        Contact testContact = new Contact( FirstName = 'Test', LastName = 'Contact' );
+
+        Account testAccount2 = new Account( Name = 'Test Account 2' );
+        Contact testContact2 = new Contact( FirstName = 'Test', LastName = 'Contact 2' );
+
+        unitOfWork.registerNew( testAccount );
+        unitOfWork.registerNew( testContact );
+        unitOfWork.registerRelationship( testContact, Contact.AccountId, testAccount );
+
+        unitOfWork.registerNew( testAccount2 );
+        unitOfWork.registerNew( testContact2 );
+        unitOfWork.registerRelationship( testContact2, Contact.AccountId, testAccount2 );
+
+        Integer dmlStatementsIssuedBefore;
+        Integer dmlRowsIssuedBefore;
+        Integer dmlStatementsIssuedAfter;
+        Integer dmlRowsIssuedAfter;
+
+        Test.startTest();
+            System.runAs( testUser ) {
+                dmlStatementsIssuedBefore = Limits.getDmlStatements();
+                dmlRowsIssuedBefore = Limits.getDmlRows();
+
+                unitOfWork.commitWork();
+
+                dmlStatementsIssuedAfter = Limits.getDmlStatements();
+                dmlRowsIssuedAfter = Limits.getDmlRows();
+            }
+        Test.stopTest();
+
+        Assert.isNotNull( testAccount.Id, 'commitWork, when called with an after relationship registration, should create the parent record' );
+        Assert.isNotNull( testContact.Id, 'commitWork, when called with an after relationship registration, should create the child record' );
+        Assert.areEqual( testAccount.Id, testContact.AccountId, 'commitWork, when called with an after relationship registration, should set the relationship field' );
+
+        Assert.isNotNull( testAccount2.Id, 'commitWork, when called with an after relationship registration, should create the parent record' );
+        Assert.isNotNull( testContact2.Id, 'commitWork, when called with an after relationship registration, should create the child record' );
+        Assert.areEqual( testAccount2.Id, testContact2.AccountId, 'commitWork, when called with an after relationship registration, should set the relationship field' );
+
+        // Note that the Savepoint creation consumes 1 DML statement but no DML rows
+        Assert.areEqual( dmlStatementsIssuedBefore + 3, dmlStatementsIssuedAfter, 'commitWork, when called with an after relationship registration, should issue 2 only DML statements' );
+        Assert.areEqual( dmlRowsIssuedBefore + 4, dmlRowsIssuedAfter, 'commitWork, when called with an after relationship registration, should issue only 4 DML rows' );
+    }
+
+    @isTest
+    private static void commitWork_whenCalledAfterRelationshipRegistrationIncompatibleWithSobjectOrder_throwsExceptionAndRollsBack() {
+        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Contact.SObjectType, Account.SObjectType } );
+
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType, Contact.SObjectType }, new Set<SobjectField> { Contact.AccountId } );
+
+        Account testAccount = new Account( Name = 'Test Account' );
+        Contact testContact = new Contact( FirstName = 'Test', LastName = 'Contact' );
+
+        unitOfWork.registerNew( testAccount );
+        unitOfWork.registerNew( testContact );
+        unitOfWork.registerRelationship( testContact, Contact.AccountId, testAccount );
+
+        Integer numberOfAccountsBefore = [ SELECT COUNT() FROM Account ];
+        Integer numberOfContactsBefore = [ SELECT COUNT() FROM Contact ];
+
+        UnitOfWork.CommitException thrownException;
+
+        Test.startTest();
+            System.runAs( testUser ) {
+                try {
+                    unitOfWork.commitWork();
+                }
+                catch ( UnitOfWork.CommitException ex ) {
+                    thrownException = ex;
+                }
+            }
+        Test.stopTest();
+
+        String expectedException = 'commitWork failed with exception: Unable to set relationship ' + Contact.AccountId + ' on record ' + testContact + ' because the parent record was not yet inserted. You may need to change your sobjectTypeOperationOrder.';
+
+        Assert.isNotNull( thrownException, 'commitWork, when called with an after relationship registration incompatible with sobject order, should throw an exception' );
+        Assert.areEqual( numberOfAccountsBefore, [ SELECT COUNT() FROM Account ], 'commitWork, when called with an after relationship registration incompatible with sobject order, should roll back the transaction' );
+        Assert.areEqual( numberOfContactsBefore, [ SELECT COUNT() FROM Contact ], 'commitWork, when called with an after relationship registration incompatible with sobject order, should roll back the transaction' );
+        Assert.areEqual( expectedException, thrownException.getMessage(), 'commitWork, when called after relationship registration incompatible with sobject order, should throw a CommitException' );
+    }
+
     // oh so many commitWork test scenarios...
-    // TODO: commitWork_whenCalledWithNoRegistrations_issuesNoDmlStatements()
     // ...
 
     private static User createMinimumAccessUser() {
@@ -532,21 +633,28 @@ private class UnitOfWorkTest {
             TimeZoneSidKey = 'Europe/London',
             LocaleSidKey = 'en_GB',
             EmailEncodingKey = 'UTF-8',
-            LanguageLocaleKey = 'en_GB'
+            LanguageLocaleKey = 'en_US'
         );
         insert minimumAccessUser;
         return minimumAccessUser;
     }
 
-    private static PermissionSet createPermissionSetWithPermissionForSobjectsAndFields( Map<SobjectType, List<SobjectField>> sobjectFieldsBySobjectType ) {
+    private static User createUserWithPermissionsForSobjectsAndFields( Set<SobjectType> sobjectTypes, Set<SobjectField> sobjectFields ) {
+        User requestedUser = createMinimumAccessUser();
+        PermissionSet requestedPermissionSet = createPermissionSetWithPermissionForSobjectsAndFields( sobjectTypes, sobjectFields );
+        assignPermissionSetToUser( requestedUser, requestedPermissionSet );
+        return requestedUser;
+    }
+
+    private static PermissionSet createPermissionSetWithPermissionForSobjectsAndFields( Set<SobjectType> sobjectTypes, Set<SobjectField> sobjectFields ) {
         PermissionSet requestedPermissionSet = new PermissionSet(
-            Label = 'Permission Set For Sobjects',
-            Name = 'Permission_Set_For_Sobjects'
+            Label = 'Permission Set For Sobjects ' + DateTime.now().getTime(),
+            Name = 'Permission_Set_For_Sobjects_' + DateTime.now().getTime()
         );
         insert requestedPermissionSet;
 
         List<ObjectPermissions> requestedObjectPermissions = new List<ObjectPermissions>();
-        for ( SobjectType thisSobjectType : sobjectFieldsBySobjectType.keySet() ) {
+        for ( SobjectType thisSobjectType : sobjectTypes ) {
             requestedObjectPermissions.add( new ObjectPermissions(
                 SobjectType = String.valueOf( thisSobjectType ),
                 PermissionsCreate = true,
@@ -559,19 +667,22 @@ private class UnitOfWorkTest {
         insert requestedObjectPermissions;
 
         List<FieldPermissions> requestedFieldPermissions = new List<FieldPermissions>();
-        for ( SobjectType thisSobjectType : sobjectFieldsBySobjectType.keySet() ) {
-            for ( SobjectField thisSobjectField : sobjectFieldsBySobjectType.get( thisSobjectType ) ) {
-                requestedFieldPermissions.add( new FieldPermissions(
-                    SobjectType = String.valueOf( thisSobjectType ),
-                    Field = String.valueOf( thisSobjectField ),
-                    PermissionsRead = true,
-                    PermissionsEdit = true,
-                    ParentId = requestedPermissionSet.Id
-                ) );
-            }
+        for ( SobjectField thisSobjectField : sobjectFields ) {
+            SobjectType thisSobjectType = thisSobjectField.getDescribe().getSobjectType();
+            requestedFieldPermissions.add( new FieldPermissions(
+                SobjectType = String.valueOf( thisSobjectType ),
+                Field = String.valueOf( thisSobjectType ) + '.' + String.valueOf( thisSobjectField ),
+                PermissionsRead = true,
+                PermissionsEdit = true,
+                ParentId = requestedPermissionSet.Id
+            ) );
         }
         insert requestedFieldPermissions;
 
         return requestedPermissionSet;
+    }
+
+    private static void assignPermissionSetToUser( User user, PermissionSet permissionSet ) {
+        insert new PermissionSetAssignment( AssigneeId = user.Id, PermissionSetId = permissionSet.Id );
     }
 }

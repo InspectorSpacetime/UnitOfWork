@@ -3,6 +3,7 @@ public with sharing class UnitOfWork
     public abstract class UnitOfWorkException extends Exception {}
     public class ValidationException extends UnitOfWorkException {}
     public class CommitException extends UnitOfWorkException {}
+    public class RelationshipException extends UnitOfWorkException {}
 
     @testVisible private List<SObjectType> sobjectTypeOperationOrder;
     @testVisible private List<SObjectType> sobjectTypeOperationOrderInReverse;
@@ -108,9 +109,17 @@ public with sharing class UnitOfWork
                 deleteRecordsForSobjectType( thisSobjectType );
             }
         }
+        catch ( DmlException ex ) {
+            Database.rollback( preCommitSavepoint );
+            List<String> dmlExceptions = new List<String>();
+            for (Integer dmlExceptionIndex = 0; dmlExceptionIndex < ex.getNumDml(); dmlExceptionIndex++) {
+                dmlExceptions.add( ex.getDmlMessage( dmlExceptionIndex ) );
+            }
+            throw new CommitException( 'commitWork failed with DmlExceptions:\n' + String.join( dmlExceptions, '\n' ) );
+        }
         catch ( Exception ex ) {
             Database.rollback( preCommitSavepoint );
-            throw new CommitException( 'commitWork failed with exception: ' + ex.getMessage() + '\n' + ex.getStackTraceString() );
+            throw new CommitException( 'commitWork failed with exception: ' + ex.getMessage() );
         }
     }
 
@@ -134,7 +143,7 @@ public with sharing class UnitOfWork
     }
 
     private void updateRecordsForSobjectType( SObjectType sobjectType ) {
-        List<SObject> recordsToUpdate = dirtyRecordsBySobjectTypeAndRecordId.get( sobjectType ).values();
+        List<SObject> recordsToUpdate = dirtyRecordsBySobjectTypeAndRecordId.get( sobjectType )?.values();
 
         if ( recordsToUpdate == null || recordsToUpdate.isEmpty() ) {
             return;
@@ -152,7 +161,7 @@ public with sharing class UnitOfWork
     }
 
     private void deleteRecordsForSobjectType( SObjectType sobjectType ) {
-        List<Id> recordIdsToDelete = new List<Id>( deletedRecordIdsBySobjectType.get( sobjectType ) );
+        Set<Id> recordIdsToDelete = deletedRecordIdsBySobjectType.get( sobjectType );
 
         if ( recordIdsToDelete == null || recordIdsToDelete.isEmpty() ) {
             return;
@@ -162,10 +171,10 @@ public with sharing class UnitOfWork
         Boolean bypassSharing = sobjectTypesToBypassSharing.contains( sobjectType );
 
         if ( bypassSharing ) {
-            new WithoutSharing().deleteRecords( recordIdsToDelete, accessLevel );
+            new WithoutSharing().deleteRecords( new List<Id>( recordIdsToDelete ), accessLevel );
         }
         else {
-            Database.delete( recordIdsToDelete, accessLevel );
+            Database.delete( new List<Id>( recordIdsToDelete ), accessLevel );
         }
     }
 
@@ -219,6 +228,9 @@ public with sharing class UnitOfWork
         public void applyRelationshipsForSobjectType( SObjectType sobjectType ) {
             if ( relationshipsBySobjectType.containsKey( sobjectType ) ) {
                 for ( Relationship thisRelationship : relationshipsBySobjectType.get( sobjectType ) ) {
+                    if ( thisRelationship.getParentRecord().Id == null ) {
+                        throw new RelationshipException( 'Unable to set relationship ' + thisRelationship.getRelationshipField() + ' on record ' + thisRelationship.getRecord() + ' because the parent record was not yet inserted. You may need to change your sobjectTypeOperationOrder.' );
+                    }
                     thisRelationship.getRecord().put( thisRelationship.getRelationshipField(), thisRelationship.getParentRecord().Id );
                 }
             }
