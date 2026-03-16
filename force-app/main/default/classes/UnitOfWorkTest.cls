@@ -602,14 +602,14 @@ private static void commitWork_whenCalledWithNoRegistrations_issuesNoDmlStatemen
         UnitOfWork.CommitException thrownException;
 
         Test.startTest();
-            System.runAs( testUser ) {
-                try {
-                    unitOfWork.commitWork();
-                }
-                catch ( UnitOfWork.CommitException ex ) {
-                    thrownException = ex;
-                }
+        System.runAs( testUser ) {
+            try {
+                unitOfWork.commitWork();
             }
+            catch ( UnitOfWork.CommitException ex ) {
+                thrownException = ex;
+            }
+        }
         Test.stopTest();
 
         String expectedException = 'commitWork failed with exception: Unable to set relationship ' + Contact.AccountId + ' on record ' + testContact + ' because the parent record was not yet inserted. You may need to change your sobjectTypeOperationOrder.';
@@ -664,8 +664,227 @@ private static void commitWork_whenCalledWithNoRegistrations_issuesNoDmlStatemen
         Assert.isTrue( actualException.contains( expectedException ), 'commitWork, when called after deletion registration where hard dependency prevents deletion, should throw a CommitException' );
     }
 
-    // oh so many commitWork test scenarios...
-    // ...
+    @isTest
+    private static void commitWork_whenInsertingRecordTheUserHasPermissionForAndThenOneItDoesntHavePermissionsFor_throwsExceptionAndRollsBack() {
+        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType }, new Set<SobjectField> {} );
+
+        Account testAccount = new Account( Name = 'Test Account' );
+        Contact testContact = new Contact( FirstName = 'Test', LastName = 'Contact' );
+
+        unitOfWork.registerNew( testAccount );
+        unitOfWork.registerNew( testContact );
+        unitOfWork.registerRelationship( testContact, Contact.AccountId, testAccount );
+
+        Integer numberOfAccountsBefore = [ SELECT COUNT() FROM Account ];
+        Integer numberOfContactsBefore = [ SELECT COUNT() FROM Contact ];
+
+        UnitOfWork.CommitException thrownException;
+
+        Test.startTest();
+        System.runAs( testUser ) {
+            try {
+                unitOfWork.commitWork();
+            }
+            catch ( UnitOfWork.CommitException ex ) {
+                thrownException = ex;
+            }
+        }
+        Test.stopTest();
+
+        Integer numberOfAccountsAfter = [ SELECT COUNT() FROM Account ];
+        Integer numberOfContactsAfter = [ SELECT COUNT() FROM Contact ];
+
+        Assert.isNotNull( thrownException, 'commitWork, when inserting a record the user has permission for and then one it doesn\'t have permissions for, should throw an exception' );
+        Assert.areEqual( 'commitWork failed with exception: Access to entity \'Contact\' denied', thrownException.getMessage(), 'commitWork, when inserting a record the user has permission for and then one it doesn\'t have permissions for, should throw a CommitException' );
+
+        Assert.areEqual( numberOfAccountsBefore, numberOfAccountsAfter, 'commitWork, when inserting a record the user has permission for and then one it doesn\'t have permissions for, should roll back the transaction' );
+        Assert.areEqual( numberOfContactsBefore, numberOfContactsAfter, 'commitWork, when inserting a record the user has permission for and then one it doesn\'t have permissions for, should roll back the transaction' );
+    }
+
+    @isTest
+    private static void commitWork_whenUpdatingRecordTheUserHasPermissionForAndThenOneItDoesNot_throwsExceptionAndRollsBack() {
+        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+
+        User otherUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Contact.SObjectType }, new Set<SobjectField> {} );
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType }, new Set<SobjectField> {} );
+
+        Account testAccount = new Account( Name = 'Test Account' );
+        Contact testContact = new Contact( FirstName = 'Test', LastName = 'Contact' );
+
+        System.runAs( otherUser ) {
+            insert testContact;
+        }
+
+        System.runAs( testUser ) {
+            insert testAccount;
+        }
+
+        UnitOfWork.CommitException thrownException;
+
+        Test.startTest();
+        System.runAs( testUser ) {
+            try {
+                Account modifiedTestAccount = new Account( Id = testAccount.Id, Name = 'Modified Test Account' );
+
+                unitOfWork.registerDirty( modifiedTestAccount );
+                unitOfWork.registerDirty( testContact );
+                unitOfWork.commitWork();
+            }
+            catch ( UnitOfWork.CommitException ex ) {
+                thrownException = ex;
+            }
+        }
+        Test.stopTest();
+
+        Account updatedTestAccount = [ SELECT Id, Name FROM Account WHERE Id = :testAccount.Id ];
+
+        Assert.isNotNull( thrownException, 'commitWork, when updating a record the user has permission for and then one it does not, should throw an exception' );
+        Assert.areEqual( 'commitWork failed with exception: Access to entity \'Contact\' denied', thrownException.getMessage(), 'commitWork, when updating a record the user has permission for and then one it does not, should throw a CommitException' );
+        Assert.areEqual( 'Test Account', updatedTestAccount.Name, 'commitWork, when updating a record the user has permission for and then one it does not, should roll back the transaction' );
+    }
+
+    @isTest
+    private static void commitWork_whenDeletingRecordTheUserHasPermissionForAndThenOneItDoesNot_throwsExceptionAndRollsBack() {
+        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+
+        User otherUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Contact.SObjectType }, new Set<SobjectField> {} );
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType }, new Set<SobjectField> {} );
+
+        Account testAccount = new Account( Name = 'Test Account' );
+        Contact testContact = new Contact( FirstName = 'Test', LastName = 'Contact' );
+
+        System.runAs( otherUser ) {
+            insert testContact;
+        }
+
+        System.runAs( testUser ) {
+            insert testAccount;
+        }
+
+        UnitOfWork.CommitException thrownException;
+
+        Test.startTest();
+        System.runAs( testUser ) {
+            try {
+                unitOfWork.registerDeleted( testAccount );
+                unitOfWork.registerDeleted( testContact );
+                unitOfWork.commitWork();
+            }
+            catch ( UnitOfWork.CommitException ex ) {
+                thrownException = ex;
+            }
+        }
+        Test.stopTest();
+
+        List<Account> testAccountsAfter = [ SELECT Id FROM Account WHERE Id = :testAccount.Id ];
+        List<Contact> testContactsAfter = [ SELECT Id FROM Contact WHERE Id = :testContact.Id ];
+
+        Assert.isNotNull( thrownException, 'commitWork, when deleting a record the user has permission for and then one it does not, should throw an exception' );
+        Assert.areEqual( 'commitWork failed with exception: Access to entity \'Contact\' denied', thrownException.getMessage(), 'commitWork, when deleting a record the user has permission for and then one it does not, should throw a CommitException' );
+        Assert.isFalse( testAccountsAfter.isEmpty(), 'commitWork, when deleting a record the user has permission for and then one it does not, should roll back the transaction - account not deleted' );
+        Assert.isFalse( testContactsAfter.isEmpty(), 'commitWork, when deleting a record the user has permission for and then one it does not, should roll back the transaction - contact not deleted' );
+    }
+
+    @isTest
+    private static void commitWork_whenInsertingRecordTheUserHasPermissionForAndThenOneItDoesntHavePermissionsForButHasBypassPermission_commitsSuccessfully() {
+        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType }, new Set<SobjectField> {} );
+
+        Account testAccount = new Account( Name = 'Test Account' );
+        Contact testContact = new Contact( FirstName = 'Test', LastName = 'Contact' );
+
+        unitOfWork.registerNew( testAccount );
+        unitOfWork.registerNew( testContact );
+        unitOfWork.registerRelationship( testContact, Contact.AccountId, testAccount );
+        unitOfWork.bypassPermissions( Contact.SObjectType );
+        unitOfWork.bypassSharing( Contact.SObjectType );
+
+        Test.startTest();
+        System.runAs( testUser ) {
+            unitOfWork.commitWork();
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( testAccount.Id, 'commitWork, when inserting a record the user has permission for and then one it doesn\'t have permissions for but has a bypass permission for, should commit successfully - account' );
+        Assert.isNotNull( testContact.Id, 'commitWork, when inserting a record the user has permission for and then one it doesn\'t have permissions for but has a bypass permission for, should commit successfully - contact' );
+    }
+
+    @isTest
+    private static void commitWork_whenUpdatingRecordTheUserHasPermissionForAndThenOneItDoesNotButHasBypassPermission_commitsSuccessfully() {
+        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+
+        User otherUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Contact.SObjectType }, new Set<SobjectField> {} );
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType }, new Set<SobjectField> {} );
+
+        Account testAccount = new Account( Name = 'Test Account' );
+        Contact testContact = new Contact( FirstName = 'Test', LastName = 'Contact' );
+
+        System.runAs( otherUser ) {
+            insert testContact;
+        }
+
+        System.runAs( testUser ) {
+            insert testAccount;
+        }
+
+
+        Test.startTest();
+        System.runAs( testUser ) {
+            Account modifiedTestAccount = new Account( Id = testAccount.Id, Name = 'Modified Test Account' );
+            Contact modifiedTestContact = new Contact( Id = testContact.Id, FirstName = 'Modified Test', LastName = 'Contact' );
+
+            unitOfWork.registerDirty( modifiedTestAccount );
+            unitOfWork.registerDirty( modifiedTestContact );
+            unitOfWork.bypassPermissions( Contact.SObjectType );
+            unitOfWork.bypassSharing( Contact.SObjectType );
+            unitOfWork.commitWork();
+        }
+        Test.stopTest();
+
+        Account updatedTestAccount = [ SELECT Id, Name FROM Account WHERE Id = :testAccount.Id ];
+        Contact updatedTestContact = [ SELECT Id, FirstName, LastName FROM Contact WHERE Id = :testContact.Id ];
+
+        Assert.areEqual( 'Modified Test Account', updatedTestAccount.Name, 'commitWork, when updating a record the user has permission for and then one it does not, should throw an exception' );
+        Assert.areEqual( 'Modified Test', updatedTestContact.FirstName, 'commitWork, when updating a record the user has permission for and then one it does not, should throw an exception' );
+    }
+
+    @isTest
+    private static void commitWork_whenDeletingRecordTheUserHasPermissionForAndThenOneItDoesNotButHasBypassPermission_commitsSuccessfully() {
+        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+
+        User otherUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Contact.SObjectType }, new Set<SobjectField> {} );
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType }, new Set<SobjectField> {} );
+
+        Account testAccount = new Account( Name = 'Test Account' );
+        Contact testContact = new Contact( FirstName = 'Test', LastName = 'Contact' );
+
+        System.runAs( otherUser ) {
+            insert testContact;
+        }
+
+        System.runAs( testUser ) {
+            insert testAccount;
+        }
+
+        Test.startTest();
+        System.runAs( testUser ) {
+            unitOfWork.registerDeleted( testAccount );
+            unitOfWork.registerDeleted( testContact );
+            unitOfWork.bypassPermissions( Contact.SObjectType );
+            unitOfWork.bypassSharing( Contact.SObjectType );
+            unitOfWork.commitWork();
+        }
+        Test.stopTest();
+
+        List<Account> testAccountsAfter = [ SELECT Id FROM Account WHERE Id = :testAccount.Id ];
+        List<Contact> testContactsAfter = [ SELECT Id FROM Contact WHERE Id = :testContact.Id ];
+
+        Assert.isTrue( testAccountsAfter.isEmpty(), 'commitWork, when deleting a record the user has permission for and then one it does not have permission for but has a bypass permission for, should commit successfully - account deleted' );
+        Assert.isTrue( testContactsAfter.isEmpty(), 'commitWork, when deleting a record the user has permission for and then one it does not have permission for but has a bypass permission for, should commit successfully - contact deleted' );
+    }
 
     private static User createMinimumAccessUser() {
         User minimumAccessUser = new User(
