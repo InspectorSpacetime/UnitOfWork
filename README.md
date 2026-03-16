@@ -16,21 +16,21 @@ A simple Unit of Work implementation in the Salesforce Apex programming language
 
 The test class ensures the robustness of the implementation by verifying both "happy path" and "edge case" scenarios:
 
-* **Constructor Validation**:
+**Constructor Validation**:
 * Throws a `ValidationException` if the class is instantiated with a null or empty list of `SObjectTypes`.
 * Confirms the internal operation order is correctly cloned and reversed upon instantiation.
 
 
-* **Registration Safeguards**:
+**Registration Safeguards**:
 * **registerNew**: Prevents registering null records, records that already possess an ID, or records of an `SObjectType` not defined in the initial operation order.
 * **registerDirty/Deleted**: Validates that records must have an ID and must be of a supported `SObjectType`.
 
 
-* **Merging Logic Verification**:
+**Merging Logic Verification**:
 * Specifically tests that multiple `registerDirty` calls on the same record ID correctly merge fields and handle null values as intended.
 
 
-* **Relationship Integrity**:
+**Relationship Integrity**:
 * Validates that relationship fields belong to the correct `SObjectType`.
 * Ensures the relationship field actually points to the `SObjectType` of the parent record.
 * Confirms successful registration of valid parent-child links.
