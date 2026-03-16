@@ -12,6 +12,77 @@ A simple Unit of Work implementation in the Salesforce Apex programming language
 * **Transactional Integrity**: Utilises Database Savepoints to ensure atomicity. If any DML operation fails during `commitWork`, the entire transaction is rolled back to its pre-commit state.
 * **Custom Exception Handling**: Features a hierarchy of custom exceptions, including `ValidationException`, `CommitException`, and `RelationshipException`, to provide clear feedback on failure points.
 
+## Usage Examples
+
+Here are some common usage scenarios for the `UnitOfWork` class.
+
+### 1. Creating and Relating Records
+This example demonstrates how to create a new `Account` and a related `Contact` in a single transaction. The Unit of Work ensures the `Account` is inserted first and automatically populates the `AccountId` on the `Contact` before it is inserted.
+
+```apex
+UnitOfWork uow = new UnitOfWork( new List<SObjectType>{ Account.SObjectType, Contact.SObjectType } );
+
+Account newAccount = new Account( Name = 'Acme Corp' );
+uow.registerNew( newAccount );
+
+Contact newContact = new Contact( LastName = 'Doe' );
+uow.registerNew( newContact );
+uow.registerRelationship( newContact, Contact.AccountId, newAccount );
+
+uow.commitWork();
+```
+
+### 2. Updating Records
+Use `registerDirty` to update existing records. The class intelligently merges multiple updates to the same record.
+
+```apex
+UnitOfWork uow = new UnitOfWork( new List<SObjectType>{ Account.SObjectType } );
+
+// Imagine an Account with an existing Id
+Account existingAcct = new Account(Id = '001xx0000000001AAA', Name = 'Updated Name');
+uow.registerDirty(existingAcct);
+
+// If another part of your code registers an update to the same record, changes are merged
+Account sameAcctUpdate = new Account(Id = '001xx0000000001AAA', Industry = 'Technology');
+uow.registerDirty(sameAcctUpdate);
+
+uow.commitWork(); // Only 1 DML update will occur with both Name and Industry updated
+```
+
+### 3. Deleting Records
+Records can be marked for deletion. The Unit of Work automatically processes deletions in the reverse order of the list provided in the constructor to respect referential integrity.
+
+```apex
+UnitOfWork uow = new UnitOfWork( new List<SObjectType>{ Account.SObjectType, Contact.SObjectType } );
+
+Contact contactToDelete = new Contact(Id = '003xx0000000001AAA');
+Account accountToDelete = new Account(Id = '001xx0000000001AAA');
+
+uow.registerDeleted( accountToDelete );
+uow.registerDeleted( contactToDelete );
+
+// Deletions happen in reverse order: Contacts are deleted before Accounts
+uow.commitWork();
+```
+
+### 4. Bypassing Permissions and Sharing
+You can selectively bypass user permissions (CRUD/FLS) and sharing rules (record visibility) for specific `SObjectType`s during the commit phase. Avoid bypassing permissions or sharing unless absolutely necessary.
+
+```apex
+UnitOfWork uow = new UnitOfWork( new List<SObjectType>{ Account.SObjectType } );
+
+// Execute DML for Accounts regardless of the user's sharing rules
+uow.bypassSharing( Account.SObjectType );
+
+// Execute DML for Accounts regardless of the user's object/field permissions (system mode)
+uow.bypassPermissions( Account.SObjectType );
+
+Account exampleAccount = new Account( Name = 'Example account' );
+uow.registerNew( exampleAccount );
+
+uow.commitWork();
+```
+
 ## Test Coverage and Scenarios
 
 The test class ensures the robustness of the implementation by verifying both "happy path" and "edge case" scenarios:
