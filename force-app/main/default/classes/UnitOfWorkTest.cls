@@ -911,6 +911,133 @@ private class UnitOfWorkTest {
         Assert.isTrue( testContactsAfter.isEmpty(), 'commitWork, when deleting a record the user has permission for and then one it does not have permission for but has a bypass permission for, should commit successfully - contact deleted' );
     }
 
+    @isTest
+    private static void commitWork_whenIntraSobjectRelationshipRegistered_splitsDmlAndCommitsSuccessfully() {
+        // TODO: Note that the sobject order will be removed when this ticket is implemented. It's currently here so that the test can compile.
+        UnitOfWork uow = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType, Contact.SObjectType }, new Set<SobjectField> { Account.ParentId, Contact.AccountId } );
+
+        Account childAccount = new Account( Name = 'Child account' );
+        uow.registerNew( childAccount );
+
+        Contact childAccountContact = new Contact( LastName = 'Smith' );
+        uow.registerNew( childAccountContact );
+        uow.registerRelationship( childAccountContact, Contact.AccountId, childAccount );
+
+        Account parentAccount = new Account( Name = 'Parent account' );
+        uow.registerNew( parentAccount );
+        uow.registerRelationship( childAccount, Account.ParentId, parentAccount );
+
+        Contact parentAccountContact = new Contact( LastName = 'Johnson' );
+        uow.registerNew( parentAccountContact );
+        uow.registerRelationship( parentAccountContact, Contact.AccountId, parentAccount );
+
+        Map<Id,Account> testAccountsAfter;
+        Map<Id,Contact> testContactsAfter;
+        Integer dmlStatementsIssuedBefore;
+        Integer dmlRowsIssuedBefore;
+        Integer dmlStatementsIssuedAfter;
+        Integer dmlRowsIssuedAfter;
+
+        Test.startTest();
+        System.runAs( testUser ) {
+            dmlStatementsIssuedBefore = Limits.getDmlStatements();
+            dmlRowsIssuedBefore = Limits.getDmlRows();
+
+            uow.commitWork();
+
+            dmlStatementsIssuedAfter = Limits.getDmlStatements();
+            dmlRowsIssuedAfter = Limits.getDmlRows();
+
+            testAccountsAfter = new Map<Id,Account>([ SELECT Id, Name, ParentId FROM Account WHERE Id IN :new List<Id>{ childAccount.Id, parentAccount.Id } ]);
+            testContactsAfter = new Map<Id,Contact>([ SELECT Id, LastName, AccountId FROM Contact WHERE Id IN :new List<Id>{ childAccountContact.Id, parentAccountContact.Id } ]);
+        }
+        Test.stopTest();
+
+        // Note that the Savepoint creation consumes 1 DML statement but no DML rows
+        Integer expectedExtraDmlStatements = 1 + 3; // 1 is used by SavePoint, 1 by the parent account, 1 by the child account and 1 by the contacts.
+        Integer expectedExtraDmlRows = 4; // 1 by the parent account, 1 by the child account and 1 for each contact.
+
+        Assert.areEqual( dmlStatementsIssuedBefore + expectedExtraDmlStatements, dmlStatementsIssuedAfter, 'commitWork, when called with an intra-sobject relationship registration, should issue the minimum required number of DML statements' );
+        Assert.areEqual( dmlRowsIssuedBefore + expectedExtraDmlRows, dmlRowsIssuedAfter, 'commitWork, when called with an intra-sobject relationship registration, should issue the minimum required number of DML rows' );
+
+        Assert.isTrue( testAccountsAfter.size() == 2, 'commitWork, when called with an intra-sobject relationship registration, should commit all accounts' );
+        Assert.isTrue( testContactsAfter.size() == 2, 'commitWork, when called with an intra-sobject relationship registration, should commit all contacts' );
+
+        Account parentAccountAfter = testAccountsAfter.get( parentAccount.Id );
+        Account childAccountAfter = testAccountsAfter.get( childAccount.Id );
+        Contact parentAccountContactAfter = testContactsAfter.get( parentAccountContact.Id );
+        Contact childAccountContactAfter = testContactsAfter.get( childAccountContact.Id );
+
+        Assert.areEqual( parentAccount.Name, parentAccountAfter.Name, 'commitWork, when called with an intra-sobject relationship registration, should commit the parent account' );
+        Assert.areEqual( childAccount.Name, childAccountAfter.Name, 'commitWork, when called with an intra-sobject relationship registration, should commit the child account' );
+        Assert.areEqual( parentAccountContact.LastName, parentAccountContactAfter.LastName, 'commitWork, when called with an intra-sobject relationship registration, should commit the parent account contact' );
+        Assert.areEqual( childAccountContact.LastName, childAccountContactAfter.LastName, 'commitWork, when called with an intra-sobject relationship registration, should commit the child account contact' );
+
+        Assert.areEqual( parentAccount.Id, childAccountAfter.ParentId, 'commitWork, when called with an intra-sobject relationship registration, should set the parent account relationship on the child account' );
+        Assert.areEqual( childAccount.Id, childAccountContactAfter.AccountId, 'commitWork, when called with an intra-sobject relationship registration, should set the child account relationship on the parent account contact' );
+        Assert.areEqual( parentAccount.Id, parentAccountContactAfter.AccountId, 'commitWork, when called with an intra-sobject relationship registration, should set the parent account relationship on the parent account contact' );
+    }
+
+    @isTest
+    private static void commitWork_whenCircularRelationshipsRegistered_splitsDmlAndCommitsSuccessfully() {
+        // TODO: Note that the sobject order will be removed when this ticket is implemented. It's currently here so that the test can compile.
+        UnitOfWork uow = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+
+        // We can't ship a custom field for the UnitOfWork tests so we simulate one using the Site field on Account.
+        SobjectField contactLookupOnAccount = Account.Site;
+
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType, Contact.SObjectType }, new Set<SobjectField> { Contact.AccountId, contactLookupOnAccount } );
+
+        Account testAccount = new Account( Name = 'Test account' );
+        uow.registerNew( testAccount );
+
+        Contact testContact = new Contact( LastName = 'Test contact' );
+        uow.registerNew( testContact );
+
+        uow.registerRelationship( testContact, Contact.AccountId, testAccount );
+        uow.registerRelationship( testAccount, contactLookupOnAccount, testContact );
+
+        Account testAccountAfter;
+        Contact testContactAfter;
+        Integer dmlStatementsIssuedBefore;
+        Integer dmlRowsIssuedBefore;
+        Integer dmlStatementsIssuedAfter;
+        Integer dmlRowsIssuedAfter;
+
+        Test.startTest();
+        System.runAs( testUser ) {
+            dmlStatementsIssuedBefore = Limits.getDmlStatements();
+            dmlRowsIssuedBefore = Limits.getDmlRows();
+
+            uow.commitWork();
+
+            dmlStatementsIssuedAfter = Limits.getDmlStatements();
+            dmlRowsIssuedAfter = Limits.getDmlRows();
+
+            testAccountAfter = [ SELECT Id, Name, Site FROM Account WHERE Id = :testAccount.Id ];
+            testContactAfter = [ SELECT Id, LastName, AccountId FROM Contact WHERE Id = :testContact.Id ];
+        }
+        Test.stopTest();
+
+        // 1 is used by SavePoint, 1 by the account for the initial insert and 1 by the contact and then 1 more by the account when it's updated to set the lookup field.
+        Integer expectedExtraDmlStatements = 1 + 3;
+        Integer expectedExtraDmlRows = 3;
+
+        Assert.areEqual( dmlStatementsIssuedBefore + expectedExtraDmlStatements, dmlStatementsIssuedAfter, 'commitWork, when called with a circular relationship registration, should issue the minimum required number of DML statements' );
+        Assert.areEqual( dmlRowsIssuedBefore + expectedExtraDmlRows, dmlRowsIssuedAfter, 'commitWork, when called with a circular relationship registration, should issue the minimum required number of DML rows' );
+
+        Assert.isTrue( testAccountAfter != null, 'commitWork, when called with a circular relationship registration, should commit the account - account record exists' );
+        Assert.isTrue( testContactAfter != null, 'commitWork, when called with a circular relationship registration, should commit the contact - contact record exists' );
+
+        Assert.areEqual( testAccount.Name, testAccountAfter.Name, 'commitWork, when called with a circular relationship registration, should commit the account - account name is correct' );
+        Assert.areEqual( testContact.LastName, testContactAfter.LastName, 'commitWork, when called with a circular relationship registration, should commit the contact - contact last name is correct' );
+
+        Assert.areEqual( testAccount.Id, testContactAfter.AccountId, 'commitWork, when called with a circular relationship registration, should set the account relationship on the contact' );
+        Assert.areEqual( testContact.Id, testAccountAfter.get( contactLookupOnAccount ), 'commitWork, when called with a circular relationship registration, should set the contact relationship on the account' );
+    }
+
     private static User createMinimumAccessUser() {
         User minimumAccessUser = new User(
             ProfileId = minimumAccessProfileId,
