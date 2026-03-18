@@ -40,6 +40,11 @@ public with sharing class UnitOfWork
     @testVisible private Set<SobjectType> sobjectTypesToBypassSharing = new Set<SobjectType>();
     @testVisible private Set<SobjectType> sobjectTypesToBypassPermissions = new Set<SobjectType>();
 
+    public UnitOfWork() {
+        // TODO
+        throw new ValidationException( 'not yet implemented' );
+    }
+
     public UnitOfWork( List<SObjectType> sobjectTypeOperationOrder ) {
         validate( sobjectTypeOperationOrder != null, 'UnitOfWork constructed with a null sobjectTypeOperationOrder' );
         validate( !sobjectTypeOperationOrder.isEmpty(), 'UnitOfWork constructed with an empty sobjectTypeOperationOrder' );
@@ -94,6 +99,11 @@ public with sharing class UnitOfWork
         validate( fieldDescribe.getReferenceTo().contains( parentSobjectType ), 'registerRelationship called with a relationship field that does not point to the parent record SobjectType' );
 
         relationships.addRelationship( record, relationshipField, parentRecord );
+    }
+
+    public void prioritiseRelationship( SObjectField priorityField, SObjectField secondaryField ) {
+        // TODO
+        throw new ValidationException( 'not yet implemented' );
     }
 
     // Bypasses sharing rules for the given SObjectType during commitWork.

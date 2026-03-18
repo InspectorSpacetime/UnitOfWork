@@ -913,8 +913,7 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void commitWork_whenIntraSobjectRelationshipRegistered_splitsDmlAndCommitsSuccessfully() {
-        // TODO: Note that the sobject order will be removed when this ticket is implemented. It's currently here so that the test can compile.
-        UnitOfWork uow = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+        UnitOfWork uow = new UnitOfWork();
 
         User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType, Contact.SObjectType }, new Set<SobjectField> { Account.ParentId, Contact.AccountId } );
 
@@ -982,8 +981,7 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void commitWork_whenCircularRelationshipsRegistered_splitsDmlAndCommitsSuccessfully() {
-        // TODO: Note that the sobject order will be removed when this ticket is implemented. It's currently here so that the test can compile.
-        UnitOfWork uow = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+        UnitOfWork uow = new UnitOfWork();
 
         // We can't ship a custom field for the UnitOfWork tests so we simulate one using the Site field on Account.
         SobjectField contactLookupOnAccount = Account.Site;
@@ -998,6 +996,7 @@ private class UnitOfWorkTest {
 
         uow.registerRelationship( testContact, Contact.AccountId, testAccount );
         uow.registerRelationship( testAccount, contactLookupOnAccount, testContact );
+        uow.prioritiseRelationship( Contact.AccountId, contactLookupOnAccount );
 
         Account testAccountAfter;
         Contact testContactAfter;
