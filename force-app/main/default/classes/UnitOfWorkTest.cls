@@ -485,80 +485,80 @@ private class UnitOfWorkTest {
         SobjectType sobjectTypeToBypassSharing = Account.SObjectType;
 
         Test.startTest();
-    unitOfWork.bypassSharing( sobjectTypeToBypassSharing );
-    Test.stopTest();
+        unitOfWork.bypassSharing( sobjectTypeToBypassSharing );
+        Test.stopTest();
 
-    Assert.isTrue( unitOfWork.sobjectTypesToBypassSharing.contains( Account.SObjectType ), 'bypassSharing, when called with a valid SobjectType, should register the sharing bypass' );
-}
-
-@isTest
-private static void bypassPermissions_whenCalledWithNullSobjectType_throwsValidationException() {
-    UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
-        SObjectType nullSobjectType;
-
-        UnitOfWork.ValidationException thrownException;
-
-        Test.startTest();
-    try {
-        unitOfWork.bypassPermissions( nullSobjectType );
-    }
-    catch ( UnitOfWork.ValidationException ex ) {
-        thrownException = ex;
-    }
-    Test.stopTest();
-
-    Assert.isNotNull( thrownException, 'bypassPermissions, when called with a null type, should throw an exception' );
-        Assert.areEqual( 'bypassPermissions called with a null type', thrownException.getMessage(), 'bypassPermissions, when called with a null type, should throw a ValidationException' );
+        Assert.isTrue( unitOfWork.sobjectTypesToBypassSharing.contains( Account.SObjectType ), 'bypassSharing, when called with a valid SobjectType, should register the sharing bypass' );
     }
 
     @isTest
-    private static void bypassPermissions_whenCalledWithSobjectTypeNotInSobjectTypeOperationOrder_throwsValidationException() {
+    private static void bypassPermissions_whenCalledWithNullSobjectType_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
-        SobjectType sobjectTypeNotInSobjectTypeOperationOrder = Contact.SObjectType;
+            SObjectType nullSobjectType;
 
-        UnitOfWork.ValidationException thrownException;
+            UnitOfWork.ValidationException thrownException;
 
-        Test.startTest();
-    try {
-        unitOfWork.bypassPermissions( sobjectTypeNotInSobjectTypeOperationOrder );
-    }
-    catch ( UnitOfWork.ValidationException ex ) {
-        thrownException = ex;
-    }
-    Test.stopTest();
+            Test.startTest();
+        try {
+            unitOfWork.bypassPermissions( nullSobjectType );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
 
-    Assert.isNotNull( thrownException, 'bypassPermissions, when called with a type not in the sobjectTypeOperationOrder, should throw an exception' );
-        Assert.areEqual( 'bypassPermissions called with a type that was not specified in the sobjectTypeOperationOrder when the UnitOfWork was constructed', thrownException.getMessage(), 'bypassPermissions, when called with a type not in the sobjectTypeOperationOrder, should throw a ValidationException' );
+        Assert.isNotNull( thrownException, 'bypassPermissions, when called with a null type, should throw an exception' );
+            Assert.areEqual( 'bypassPermissions called with a null type', thrownException.getMessage(), 'bypassPermissions, when called with a null type, should throw a ValidationException' );
+        }
+
+        @isTest
+        private static void bypassPermissions_whenCalledWithSobjectTypeNotInSobjectTypeOperationOrder_throwsValidationException() {
+            UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
+            SobjectType sobjectTypeNotInSobjectTypeOperationOrder = Contact.SObjectType;
+
+            UnitOfWork.ValidationException thrownException;
+
+            Test.startTest();
+        try {
+            unitOfWork.bypassPermissions( sobjectTypeNotInSobjectTypeOperationOrder );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'bypassPermissions, when called with a type not in the sobjectTypeOperationOrder, should throw an exception' );
+            Assert.areEqual( 'bypassPermissions called with a type that was not specified in the sobjectTypeOperationOrder when the UnitOfWork was constructed', thrownException.getMessage(), 'bypassPermissions, when called with a type not in the sobjectTypeOperationOrder, should throw a ValidationException' );
+        }
+
+        @isTest
+        private static void bypassPermissions_whenCalledWithValidSobjectType_registersPermissionsBypass() {
+            UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
+            SobjectType sobjectTypeToBypassPermissions = Account.SObjectType;
+
+            Test.startTest();
+        unitOfWork.bypassPermissions( sobjectTypeToBypassPermissions );
+        Test.stopTest();
+
+        Assert.isTrue( unitOfWork.sobjectTypesToBypassPermissions.contains( Account.SObjectType ), 'bypassPermissions, when called with a valid SobjectType, should register the permissions bypass' );
     }
 
     @isTest
-    private static void bypassPermissions_whenCalledWithValidSobjectType_registersPermissionsBypass() {
+    private static void commitWork_whenCalledWithNoRegistrations_issuesNoDmlStatements() {
         UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
-        SobjectType sobjectTypeToBypassPermissions = Account.SObjectType;
 
-        Test.startTest();
-    unitOfWork.bypassPermissions( sobjectTypeToBypassPermissions );
-    Test.stopTest();
+            Integer dmlStatementsIssuedBefore = Limits.getDmlStatements();
 
-    Assert.isTrue( unitOfWork.sobjectTypesToBypassPermissions.contains( Account.SObjectType ), 'bypassPermissions, when called with a valid SobjectType, should register the permissions bypass' );
-}
+            Test.startTest();
+        unitOfWork.commitWork();
+        Test.stopTest();
 
-@isTest
-private static void commitWork_whenCalledWithNoRegistrations_issuesNoDmlStatements() {
-    UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
+        Integer dmlStatementsIssuedAfter = Limits.getDmlStatements();
 
-        Integer dmlStatementsIssuedBefore = Limits.getDmlStatements();
+        Assert.areEqual( dmlStatementsIssuedBefore, dmlStatementsIssuedAfter, 'commitWork, when called with no registrations, should issue no Dml statements' );
+    }
 
-        Test.startTest();
-    unitOfWork.commitWork();
-    Test.stopTest();
-
-    Integer dmlStatementsIssuedAfter = Limits.getDmlStatements();
-
-    Assert.areEqual( dmlStatementsIssuedBefore, dmlStatementsIssuedAfter, 'commitWork, when called with no registrations, should issue no Dml statements' );
-}
-
-@isTest
+    @isTest
     private static void commitWork_whenCalledAfterRelationshipRegistration_createsRecords() {
         UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
 
