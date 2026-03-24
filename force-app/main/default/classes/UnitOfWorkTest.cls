@@ -29,59 +29,8 @@ private class UnitOfWorkTest {
     private static final Id minimumAccessProfileId = [ SELECT Id FROM Profile WHERE Name = 'Minimum Access - Salesforce' LIMIT 1 ].Id;
 
     @isTest
-    private static void constructor_whenCalledWithNullSobjectTypeOperationOrder_throwsValidationException() {
-        List<SObjectType> nullSobjectTypeOperationOrder = null;
-
-        UnitOfWork.ValidationException thrownException;
-
-        Test.startTest();
-        try {
-            new UnitOfWork( nullSobjectTypeOperationOrder );
-        }
-        catch ( UnitOfWork.ValidationException ex ) {
-            thrownException = ex;
-        }
-        Test.stopTest();
-
-        Assert.isNotNull( thrownException, 'constructor, when called with a null sobjectTypeOperationOrder, should throw an exception' );
-        Assert.areEqual( 'UnitOfWork constructed with a null sobjectTypeOperationOrder', thrownException.getMessage(), 'constructor, when called with a null sobjectTypeOperationOrder, should throw a ValidationException' );
-    }
-
-    @isTest
-    private static void constructor_whenCalledWithEmptySobjectTypeOperationOrder_throwsValidationException() {
-        List<SObjectType> emptySobjectTypeOperationOrder = new List<SObjectType>();
-
-        UnitOfWork.ValidationException thrownException;
-
-        Test.startTest();
-        try {
-            new UnitOfWork( emptySobjectTypeOperationOrder );
-        }
-        catch ( UnitOfWork.ValidationException ex ) {
-            thrownException = ex;
-        }
-        Test.stopTest();
-
-        Assert.isNotNull( thrownException, 'constructor, when called with an empty sobjectTypeOperationOrder, should throw an exception' );
-        Assert.areEqual( 'UnitOfWork constructed with an empty sobjectTypeOperationOrder', thrownException.getMessage(), 'constructor, when called with an empty sobjectTypeOperationOrder, should throw a ValidationException' );
-    }
-
-    @isTest
-    private static void constructor_whenCalledWithListOfSobjectTypes_buildsUnitOfWorkWithCorrectSobjectTypeOperationOrder() {
-        List<SObjectType> sobjectTypeOperationOrder = new List<SObjectType> { Account.SObjectType, Contact.SObjectType };
-
-        UnitOfWork got;
-
-        Test.startTest();
-        got = new UnitOfWork( sobjectTypeOperationOrder );
-        Test.stopTest();
-
-        Assert.areEqual( sobjectTypeOperationOrder, got.sobjectTypeOperationOrder, 'constructor, when called with a list of sobjectTypes, should build a UnitOfWork with the correct sobjectTypeOperationOrder' );
-    }
-
-    @isTest
     private static void registerNew_whenCalledWithNullRecord_throwsValidationException() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
         Sobject nullRecord;
 
         UnitOfWork.ValidationException thrownException;
@@ -101,7 +50,7 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void registerNew_whenCalledWithRecordWithId_throwsValidationException() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
         Account accountWithId = new Account( Id = '001000000000000', Name = 'Account with Id' );
 
         UnitOfWork.ValidationException thrownException;
@@ -120,28 +69,8 @@ private class UnitOfWorkTest {
     }
 
     @isTest
-    private static void registerNew_whenCalledWithRecordNotInSobjectTypeOperationOrder_throwsValidationException() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
-        Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
-
-        UnitOfWork.ValidationException thrownException;
-
-        Test.startTest();
-        try {
-            unitOfWork.registerNew( testContact );
-        }
-        catch ( UnitOfWork.ValidationException ex ) {
-            thrownException = ex;
-        }
-        Test.stopTest();
-
-        Assert.isNotNull( thrownException, 'registerNew, when called with a record not in the sobjectTypeOperationOrder, should throw an exception' );
-        Assert.areEqual( 'registerNew called with a record whose SObjectType is not in the sobjectTypeOperationOrder', thrownException.getMessage(), 'registerNew, when called with a record not in the sobjectTypeOperationOrder, should throw a ValidationException' );
-    }
-
-    @isTest
     private static void registerNew_whenCalledWithRecordInSobjectTypeOperationOrder_registersRecord() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
         Account testAccount = new Account( Name = 'Test Account' );
 
         Test.startTest();
@@ -153,7 +82,7 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void registerDirty_whenCalledWithNullRecord_throwsValidationException() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
         SObject nullRecord;
 
         UnitOfWork.ValidationException thrownException;
@@ -173,7 +102,7 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void registerDirty_whenCalledWithRecordWithNullId_throwsValidationException() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
         Account accountWithNullId = new Account( Name = 'Account with Null Id' );
 
         UnitOfWork.ValidationException thrownException;
@@ -192,28 +121,8 @@ private class UnitOfWorkTest {
     }
 
     @isTest
-    private static void registerDirty_whenCalledWithRecordNotInSobjectTypeOperationOrder_throwsValidationException() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
-        Contact testContact = new Contact( Id = '003000000000000', FirstName = 'John', LastName = 'Smith' );
-
-        UnitOfWork.ValidationException thrownException;
-
-        Test.startTest();
-        try {
-            unitOfWork.registerDirty( testContact );
-        }
-        catch ( UnitOfWork.ValidationException ex ) {
-            thrownException = ex;
-        }
-        Test.stopTest();
-
-        Assert.isNotNull( thrownException, 'registerDirty, when called with a record not in the sobjectTypeOperationOrder, should throw an exception' );
-        Assert.areEqual( 'registerDirty called with a record whose SObjectType is not in the sobjectTypeOperationOrder', thrownException.getMessage(), 'registerDirty, when called with a record not in the sobjectTypeOperationOrder, should throw a ValidationException' );
-    }
-
-    @isTest
     private static void registerDirty_whenCalledWithRecordInSobjectTypeOperationOrder_registersRecord() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
         Account testAccount = new Account( Id = '001000000000000', Name = 'Test Account' );
 
         Test.startTest();
@@ -225,7 +134,7 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void registerDirty_whenCalledTwiceWithSameRecord_mergesRecords() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
         Id accountId = '001000000000000';
 
         Account originalVersionOfAccount = new Account( Id = accountId, Name = 'Test Account', Phone = '1234567890' );
@@ -244,7 +153,7 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void registerDeleted_whenCalledWithNullRecord_throwsValidationException() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
         SObject nullRecord;
 
         UnitOfWork.ValidationException thrownException;
@@ -264,7 +173,7 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void registerDeleted_whenCalledWithRecordWithNullId_throwsValidationException() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
         Account accountWithNullId = new Account( Name = 'Account with Null Id' );
 
         UnitOfWork.ValidationException thrownException;
@@ -283,28 +192,8 @@ private class UnitOfWorkTest {
     }
 
     @isTest
-    private static void registerDeleted_whenCalledWithRecordNotInSobjectTypeOperationOrder_throwsValidationException() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
-        Contact testContact = new Contact( Id = '003000000000000', FirstName = 'John', LastName = 'Smith' );
-
-        UnitOfWork.ValidationException thrownException;
-
-        Test.startTest();
-        try {
-            unitOfWork.registerDeleted( testContact );
-        }
-        catch ( UnitOfWork.ValidationException ex ) {
-            thrownException = ex;
-        }
-        Test.stopTest();
-
-        Assert.isNotNull( thrownException, 'registerDeleted, when called with a record not in the sobjectTypeOperationOrder, should throw an exception' );
-        Assert.areEqual( 'registerDeleted called with a record whose SObjectType is not in the sobjectTypeOperationOrder', thrownException.getMessage(), 'registerDeleted, when called with a record not in the sobjectTypeOperationOrder, should throw a ValidationException' );
-    }
-
-    @isTest
     private static void registerDeleted_whenCalledWithRecordInSobjectTypeOperationOrder_registersRecord() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
         Account testAccount = new Account( Id = '001000000000000', Name = 'Test Account' );
 
         Test.startTest();
@@ -316,7 +205,7 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void registerRelationship_whenCalledWithNullRecord_throwsValidationException() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
         SObject nullRecord;
         SObjectField relationshipField = Contact.AccountId;
         Account parentRecord = new Account( Name = 'Parent Account' );
@@ -338,7 +227,7 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void registerRelationship_whenCalledWithNullRelationshipField_throwsValidationException() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
         Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
         SObjectField nullRelationshipField;
         Account parentRecord = new Account( Name = 'Parent Account' );
@@ -360,7 +249,7 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void registerRelationship_whenCalledWithNullParentRecord_throwsValidationException() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
         Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
         SObjectField relationshipField = Contact.AccountId;
         SObject nullParentRecord;
@@ -382,7 +271,7 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void registerRelationship_whenCalledWithRelationshipFieldNotOnRecordSobjectType_throwsValidationException() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
         Account testAccount = new Account( Name = 'Test Account' ); // Record is Account, not Contact
         SObjectField relationshipField = Contact.AccountId;
         Account parentRecord = new Account( Name = 'Parent Account' );
@@ -403,30 +292,8 @@ private class UnitOfWorkTest {
     }
 
     @isTest
-    private static void registerRelationship_whenCalledWithRelationshipFieldNotPointingToParentSobjectType_throwsValidationException() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType, User.SObjectType } );
-        Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
-        SObjectField relationshipField = Contact.AccountId;
-        User parentRecord = new User( LastName = 'Parent User' ); // relationshipField points to Account, not User
-
-        UnitOfWork.ValidationException thrownException;
-
-        Test.startTest();
-        try {
-            unitOfWork.registerRelationship( testContact, relationshipField, parentRecord );
-        }
-        catch ( UnitOfWork.ValidationException ex ) {
-            thrownException = ex;
-        }
-        Test.stopTest();
-
-        Assert.isNotNull( thrownException, 'registerRelationship, when called with a relationship field that does not point to the parent record SobjectType, should throw an exception' );
-        Assert.areEqual( 'registerRelationship called with a relationship field that does not point to the parent record SobjectType', thrownException.getMessage(), 'registerRelationship, when called with a relationship field not pointing to the parent SObjectType, should throw a ValidationException' );
-    }
-
-    @isTest
     private static void registerRelationship_whenCalledWithValidParameters_registersRelationship() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
         Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
         SObjectField relationshipField = Contact.AccountId;
         Account parentRecord = new Account( Name = 'Parent Account' );
@@ -441,47 +308,27 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void bypassSharing_whenCalledWithNullSobjectType_throwsValidationException() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
         SObjectType nullSobjectType;
 
         UnitOfWork.ValidationException thrownException;
 
         Test.startTest();
-    try {
-        unitOfWork.bypassSharing( nullSobjectType );
-    }
-    catch ( UnitOfWork.ValidationException ex ) {
-        thrownException = ex;
-    }
-    Test.stopTest();
+        try {
+            unitOfWork.bypassSharing( nullSobjectType );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
 
-    Assert.isNotNull( thrownException, 'bypassSharing, when called with a null type, should throw an exception' );
+        Assert.isNotNull( thrownException, 'bypassSharing, when called with a null type, should throw an exception' );
         Assert.areEqual( 'bypassSharing called with a null type', thrownException.getMessage(), 'bypassSharing, when called with a null type, should throw a ValidationException' );
     }
 
     @isTest
-    private static void bypassSharing_whenCalledWithSobjectTypeNotInSobjectTypeOperationOrder_throwsValidationException() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
-        SobjectType sobjectTypeNotInSobjectTypeOperationOrder = Contact.SObjectType;
-
-        UnitOfWork.ValidationException thrownException;
-
-        Test.startTest();
-    try {
-        unitOfWork.bypassSharing( sobjectTypeNotInSobjectTypeOperationOrder );
-    }
-    catch ( UnitOfWork.ValidationException ex ) {
-        thrownException = ex;
-    }
-    Test.stopTest();
-
-    Assert.isNotNull( thrownException, 'bypassSharing, when called with a type not in the sobjectTypeOperationOrder, should throw an exception' );
-        Assert.areEqual( 'bypassSharing called with a type that was not specified in the sobjectTypeOperationOrder when the UnitOfWork was constructed', thrownException.getMessage(), 'bypassSharing, when called with a type not in the sobjectTypeOperationOrder, should throw a ValidationException' );
-    }
-
-    @isTest
     private static void bypassSharing_whenCalledWithValidSobjectType_registersSharingBypass() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
         SobjectType sobjectTypeToBypassSharing = Account.SObjectType;
 
         Test.startTest();
@@ -493,12 +340,12 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void bypassPermissions_whenCalledWithNullSobjectType_throwsValidationException() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
-            SObjectType nullSobjectType;
+        UnitOfWork unitOfWork = new UnitOfWork();
+        SObjectType nullSobjectType;
 
-            UnitOfWork.ValidationException thrownException;
+        UnitOfWork.ValidationException thrownException;
 
-            Test.startTest();
+        Test.startTest();
         try {
             unitOfWork.bypassPermissions( nullSobjectType );
         }
@@ -508,32 +355,12 @@ private class UnitOfWorkTest {
         Test.stopTest();
 
         Assert.isNotNull( thrownException, 'bypassPermissions, when called with a null type, should throw an exception' );
-            Assert.areEqual( 'bypassPermissions called with a null type', thrownException.getMessage(), 'bypassPermissions, when called with a null type, should throw a ValidationException' );
-        }
+        Assert.areEqual( 'bypassPermissions called with a null type', thrownException.getMessage(), 'bypassPermissions, when called with a null type, should throw a ValidationException' );
+    }
 
-        @isTest
-        private static void bypassPermissions_whenCalledWithSobjectTypeNotInSobjectTypeOperationOrder_throwsValidationException() {
-            UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
-            SobjectType sobjectTypeNotInSobjectTypeOperationOrder = Contact.SObjectType;
-
-            UnitOfWork.ValidationException thrownException;
-
-            Test.startTest();
-        try {
-            unitOfWork.bypassPermissions( sobjectTypeNotInSobjectTypeOperationOrder );
-        }
-        catch ( UnitOfWork.ValidationException ex ) {
-            thrownException = ex;
-        }
-        Test.stopTest();
-
-        Assert.isNotNull( thrownException, 'bypassPermissions, when called with a type not in the sobjectTypeOperationOrder, should throw an exception' );
-            Assert.areEqual( 'bypassPermissions called with a type that was not specified in the sobjectTypeOperationOrder when the UnitOfWork was constructed', thrownException.getMessage(), 'bypassPermissions, when called with a type not in the sobjectTypeOperationOrder, should throw a ValidationException' );
-        }
-
-        @isTest
-        private static void bypassPermissions_whenCalledWithValidSobjectType_registersPermissionsBypass() {
-            UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
+    @isTest
+    private static void bypassPermissions_whenCalledWithValidSobjectType_registersPermissionsBypass() {
+        UnitOfWork unitOfWork = new UnitOfWork();
             SobjectType sobjectTypeToBypassPermissions = Account.SObjectType;
 
             Test.startTest();
@@ -545,7 +372,7 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void commitWork_whenCalledWithNoRegistrations_issuesNoDmlStatements() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
 
             Integer dmlStatementsIssuedBefore = Limits.getDmlStatements();
 
@@ -560,7 +387,7 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void commitWork_whenCalledAfterRelationshipRegistration_createsRecords() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
 
         User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType, Contact.SObjectType }, new Set<SobjectField> { Contact.AccountId } );
 
@@ -609,45 +436,8 @@ private class UnitOfWorkTest {
     }
 
     @isTest
-    private static void commitWork_whenCalledAfterRelationshipRegistrationIncompatibleWithSobjectOrder_throwsExceptionAndRollsBack() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Contact.SObjectType, Account.SObjectType } );
-
-        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType, Contact.SObjectType }, new Set<SobjectField> { Contact.AccountId } );
-
-        Account testAccount = new Account( Name = 'Test Account' );
-        Contact testContact = new Contact( FirstName = 'Test', LastName = 'Contact' );
-
-        unitOfWork.registerNew( testAccount );
-        unitOfWork.registerNew( testContact );
-        unitOfWork.registerRelationship( testContact, Contact.AccountId, testAccount );
-
-        Integer numberOfAccountsBefore = [ SELECT COUNT() FROM Account ];
-        Integer numberOfContactsBefore = [ SELECT COUNT() FROM Contact ];
-
-        UnitOfWork.CommitException thrownException;
-
-        Test.startTest();
-        System.runAs( testUser ) {
-            try {
-                unitOfWork.commitWork();
-            }
-            catch ( UnitOfWork.CommitException ex ) {
-                thrownException = ex;
-            }
-        }
-        Test.stopTest();
-
-        String expectedException = 'commitWork failed with exception: Unable to set relationship ' + Contact.AccountId + ' on record ' + testContact + ' because the parent record was not yet inserted. You may need to change your sobjectTypeOperationOrder.';
-
-        Assert.isNotNull( thrownException, 'commitWork, when called with an after relationship registration incompatible with sobject order, should throw an exception' );
-        Assert.areEqual( numberOfAccountsBefore, [ SELECT COUNT() FROM Account ], 'commitWork, when called with an after relationship registration incompatible with sobject order, should roll back the transaction' );
-        Assert.areEqual( numberOfContactsBefore, [ SELECT COUNT() FROM Contact ], 'commitWork, when called with an after relationship registration incompatible with sobject order, should roll back the transaction' );
-        Assert.areEqual( expectedException, thrownException.getMessage(), 'commitWork, when called after relationship registration incompatible with sobject order, should throw a CommitException' );
-    }
-
-    @isTest
     private static void commitWork_whenCalledAfterDeletionRegisteredWhereHardDependencyPreventsDeletion_throwsExceptionAndRollsBack() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contract.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
 
         User testUser = createUserWithPermissionsForSobjectsAndFields(
             new Set<SobjectType> { Account.SObjectType, Contract.SObjectType },
@@ -691,7 +481,7 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void commitWork_whenInsertingRecordTheUserHasPermissionForAndThenOneItDoesntHavePermissionsFor_throwsExceptionAndRollsBack() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
 
         User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType }, new Set<SobjectField> {} );
 
@@ -730,7 +520,7 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void commitWork_whenUpdatingRecordTheUserHasPermissionForAndThenOneItDoesNot_throwsExceptionAndRollsBack() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
 
         User otherUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Contact.SObjectType }, new Set<SobjectField> {} );
         User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType }, new Set<SobjectField> {} );
@@ -772,7 +562,7 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void commitWork_whenDeletingRecordTheUserHasPermissionForAndThenOneItDoesNot_throwsExceptionAndRollsBack() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
 
         User otherUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Contact.SObjectType }, new Set<SobjectField> {} );
         User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType }, new Set<SobjectField> {} );
@@ -814,7 +604,7 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void commitWork_whenInsertingRecordTheUserHasPermissionForAndThenOneItDoesntHavePermissionsForButHasBypassPermission_commitsSuccessfully() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
 
         User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType }, new Set<SobjectField> {} );
 
@@ -839,7 +629,7 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void commitWork_whenUpdatingRecordTheUserHasPermissionForAndThenOneItDoesNotButHasBypassPermission_commitsSuccessfully() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
 
         User otherUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Contact.SObjectType }, new Set<SobjectField> {} );
         User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType }, new Set<SobjectField> {} );
@@ -878,7 +668,7 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void commitWork_whenDeletingRecordTheUserHasPermissionForAndThenOneItDoesNotButHasBypassPermission_commitsSuccessfully() {
-        UnitOfWork unitOfWork = new UnitOfWork( new List<SObjectType> { Account.SObjectType, Contact.SObjectType } );
+        UnitOfWork unitOfWork = new UnitOfWork();
 
         User otherUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Contact.SObjectType }, new Set<SobjectField> {} );
         User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType }, new Set<SobjectField> {} );
@@ -1035,6 +825,54 @@ private class UnitOfWorkTest {
 
         Assert.areEqual( testAccount.Id, testContactAfter.AccountId, 'commitWork, when called with a circular relationship registration, should set the account relationship on the contact' );
         Assert.areEqual( testContact.Id, testAccountAfter.get( contactLookupOnAccount ), 'commitWork, when called with a circular relationship registration, should set the contact relationship on the account' );
+    }
+
+    @isTest
+    private static void commitWork_whenCircularRelationshipsRegisteredWithDirtyRecord_mergesFieldsAndCommitsSuccessfully() {
+        // We can't ship a custom field for the UnitOfWork tests so we simulate one using the Site field on Account.
+        SobjectField contactLookupOnAccount = Account.Site;
+
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType, Contact.SObjectType }, new Set<SobjectField> { Contact.AccountId, contactLookupOnAccount } );
+
+        Account existingAccount;
+        System.runAs( testUser ) {
+            existingAccount = new Account( Name = 'Original name' );
+            insert existingAccount;
+        }
+
+        UnitOfWork uow = new UnitOfWork();
+
+        // Register the existing account as dirty with a name change
+        Account dirtyAccount = new Account( Id = existingAccount.Id, Name = 'Updated name' );
+        uow.registerDirty( dirtyAccount );
+
+        // Register a new contact that references the existing account (priority direction)
+        Contact testContact = new Contact( LastName = 'Test contact' );
+        uow.registerNew( testContact );
+
+        uow.registerRelationship( testContact, Contact.AccountId, dirtyAccount );
+        uow.registerRelationship( dirtyAccount, contactLookupOnAccount, testContact );
+        uow.prioritiseRelationship( Contact.AccountId, contactLookupOnAccount );
+
+        Account testAccountAfter;
+        Contact testContactAfter;
+
+        Test.startTest();
+        System.runAs( testUser ) {
+            uow.commitWork();
+
+            testAccountAfter = [ SELECT Id, Name, Site FROM Account WHERE Id = :existingAccount.Id ];
+            testContactAfter = [ SELECT Id, LastName, AccountId FROM Contact WHERE Id = :testContact.Id ];
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( testContactAfter, 'commitWork, when called with a circular relationship where the secondary record is dirty, should commit the contact' );
+        Assert.isNotNull( testAccountAfter, 'commitWork, when called with a circular relationship where the secondary record is dirty, should commit the account' );
+
+        // Both the dirty field (Name) and the secondary relationship field (Site) must be present on the single update
+        Assert.areEqual( 'Updated name', testAccountAfter.Name, 'commitWork, when called with a circular relationship where the secondary record is dirty, should preserve the dirty field change on the account' );
+        Assert.areEqual( existingAccount.Id, testContactAfter.AccountId, 'commitWork, when called with a circular relationship where the secondary record is dirty, should set the priority relationship on the contact' );
+        Assert.areEqual( testContact.Id, testAccountAfter.get( contactLookupOnAccount ), 'commitWork, when called with a circular relationship where the secondary record is dirty, should set the secondary relationship on the account' );
     }
 
     private static User createMinimumAccessUser() {
