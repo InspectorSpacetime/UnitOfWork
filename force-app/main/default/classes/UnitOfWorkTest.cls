@@ -307,6 +307,76 @@ private class UnitOfWorkTest {
     }
 
     @isTest
+    private static void registerRelationship_whenSameFieldRegisteredTwiceForSameRecord_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
+        Account account1 = new Account( Name = 'Account 1' );
+        Account account2 = new Account( Name = 'Account 2' );
+
+        unitOfWork.registerRelationship( testContact, Contact.AccountId, account1 );
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.registerRelationship( testContact, Contact.AccountId, account2 );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'registerRelationship, when the same field is registered twice for the same record, should throw an exception' );
+        Assert.areEqual( 'registerRelationship called with a relationship field that has already been registered for this record', thrownException.getMessage(), 'registerRelationship, when the same field is registered twice for the same record, should throw a ValidationException' );
+    }
+
+    @isTest
+    private static void registerRelationship_whenParentRecordAlreadyRegisteredForDeletion_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
+        Account parentAccount = new Account( Id = '001000000000000', Name = 'Parent Account' );
+
+        unitOfWork.registerDeleted( parentAccount );
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.registerRelationship( testContact, Contact.AccountId, parentAccount );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'registerRelationship, when the parent record has been registered for deletion, should throw an exception' );
+        Assert.areEqual( 'registerRelationship called with a parent record that has been registered for deletion', thrownException.getMessage(), 'registerRelationship, when the parent record has been registered for deletion, should throw a ValidationException' );
+    }
+
+    @isTest
+    private static void registerDeleted_whenRecordIsParentOfRegisteredRelationship_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
+        Account parentAccount = new Account( Id = '001000000000000', Name = 'Parent Account' );
+
+        unitOfWork.registerRelationship( testContact, Contact.AccountId, parentAccount );
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.registerDeleted( parentAccount );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'registerDeleted, when the record is the parent of a registered relationship, should throw an exception' );
+        Assert.areEqual( 'registerDeleted called with a record that is the parent of a registered relationship', thrownException.getMessage(), 'registerDeleted, when the record is the parent of a registered relationship, should throw a ValidationException' );
+    }
+
+    @isTest
     private static void bypassSharing_whenCalledWithNullSobjectType_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         SObjectType nullSobjectType;
@@ -371,6 +441,46 @@ private class UnitOfWorkTest {
     }
 
     @isTest
+    private static void prioritiseRelationship_whenCalledWithNullPriorityField_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        SObjectField nullField;
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.prioritiseRelationship( nullField, Contact.AccountId );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'prioritiseRelationship, when called with a null priorityField, should throw an exception' );
+        Assert.areEqual( 'prioritiseRelationship called with a null priorityField', thrownException.getMessage(), 'prioritiseRelationship, when called with a null priorityField, should throw a ValidationException' );
+    }
+
+    @isTest
+    private static void prioritiseRelationship_whenCalledWithNullSecondaryField_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        SObjectField nullField;
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.prioritiseRelationship( Contact.AccountId, nullField );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'prioritiseRelationship, when called with a null secondaryField, should throw an exception' );
+        Assert.areEqual( 'prioritiseRelationship called with a null secondaryField', thrownException.getMessage(), 'prioritiseRelationship, when called with a null secondaryField, should throw a ValidationException' );
+    }
+
+    @isTest
     private static void commitWork_whenCalledWithNoRegistrations_issuesNoDmlStatements() {
         UnitOfWork unitOfWork = new UnitOfWork();
 
@@ -383,6 +493,86 @@ private class UnitOfWorkTest {
         Integer dmlStatementsIssuedAfter = Limits.getDmlStatements();
 
         Assert.areEqual( dmlStatementsIssuedBefore, dmlStatementsIssuedAfter, 'commitWork, when called with no registrations, should issue no Dml statements' );
+    }
+
+    @isTest
+    private static void commitWork_whenCalledTwice_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        unitOfWork.commitWork();
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.commitWork();
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'commitWork, when called twice on the same instance, should throw an exception on the second call' );
+        Assert.areEqual( 'commitWork has already been called on this UnitOfWork instance', thrownException.getMessage(), 'commitWork, when called twice, should throw a ValidationException' );
+    }
+
+    @isTest
+    private static void commitWork_whenInterTypeCircularRelationshipsRegisteredWithoutPrioritise_throwsCommitException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+
+        SobjectField contactLookupOnAccount = Account.Site;
+
+        Account testAccount = new Account( Name = 'Test Account' );
+        Contact testContact = new Contact( FirstName = 'Test', LastName = 'Contact' );
+
+        unitOfWork.registerNew( testAccount );
+        unitOfWork.registerNew( testContact );
+
+        // Both relationships are registered with neither marked as secondary — this creates an unresolvable cycle
+        unitOfWork.registerRelationship( testContact, Contact.AccountId, testAccount );
+        unitOfWork.registerRelationship( testAccount, contactLookupOnAccount, testContact );
+
+        UnitOfWork.CommitException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.commitWork();
+        }
+        catch ( UnitOfWork.CommitException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'commitWork, when inter-type circular relationships are registered without prioritiseRelationship, should throw an exception' );
+        Assert.isTrue( thrownException.getMessage().contains( 'Circular relationship detected between SObject types' ), 'commitWork, when inter-type circular relationships are registered without prioritiseRelationship, should throw a CommitException with a useful message' );
+    }
+
+    @isTest
+    private static void commitWork_whenIntraSobjectCircularRelationshipRegistered_throwsCommitException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+
+        Account accountA = new Account( Name = 'Account A' );
+        Account accountB = new Account( Name = 'Account B' );
+
+        unitOfWork.registerNew( accountA );
+        unitOfWork.registerNew( accountB );
+
+        // A → B → A creates an unresolvable intra-type cycle
+        unitOfWork.registerRelationship( accountA, Account.ParentId, accountB );
+        unitOfWork.registerRelationship( accountB, Account.ParentId, accountA );
+
+        UnitOfWork.CommitException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.commitWork();
+        }
+        catch ( UnitOfWork.CommitException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'commitWork, when an intra-SObject circular relationship is registered, should throw an exception' );
+        Assert.isTrue( thrownException.getMessage().contains( 'Circular intra-type relationship detected' ), 'commitWork, when an intra-SObject circular relationship is registered, should throw a CommitException with a useful message' );
     }
 
     @isTest

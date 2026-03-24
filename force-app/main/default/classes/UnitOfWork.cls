@@ -37,6 +37,7 @@ public with sharing class UnitOfWork
     @testVisible private Set<SobjectType> sobjectTypesToBypassSharing = new Set<SobjectType>();
     @testVisible private Set<SobjectType> sobjectTypesToBypassPermissions = new Set<SobjectType>();
     @testVisible private Set<SObjectField> secondaryFields = new Set<SObjectField>();
+    @testVisible private Boolean committed = false;
 
     public UnitOfWork() {}
 
@@ -61,6 +62,7 @@ public with sharing class UnitOfWork
     public void registerDeleted( SObject record ) {
         validate( record != null, 'registerDeleted called with a null record' );
         validate( record.Id != null, 'registerDeleted called with a record that does not have an Id' );
+        validate( !isParentOfAnyRelationship( record ), 'registerDeleted called with a record that is the parent of a registered relationship' );
 
         deletedRecord( record );
     }
@@ -75,6 +77,8 @@ public with sharing class UnitOfWork
         DescribeFieldResult fieldDescribe = relationshipField.getDescribe();
 
         validate( fieldDescribe.getSobjectType() == recordSobjectType, 'registerRelationship called with a relationship field from a different SobjectType than the record SobjectType' );
+        validate( !relationships.hasRelationship( record, relationshipField ), 'registerRelationship called with a relationship field that has already been registered for this record' );
+        validate( !isRegisteredForDeletion( parentRecord ), 'registerRelationship called with a parent record that has been registered for deletion' );
 
         relationships.addRelationship( record, relationshipField, parentRecord );
     }
@@ -104,6 +108,8 @@ public with sharing class UnitOfWork
 
     // Commits all the changes to the database.
     public void commitWork() {
+        validate( !committed, 'commitWork has already been called on this UnitOfWork instance' );
+
         Savepoint preCommitSavepoint = Database.setSavepoint();
 
         try {
@@ -132,6 +138,8 @@ public with sharing class UnitOfWork
             for ( SObjectType thisSobjectType : reversedOrderSobjectTypes ) {
                 deleteRecordsForSobjectType( thisSobjectType );
             }
+
+            committed = true;
         }
         catch ( DmlException ex ) {
             Database.rollback( preCommitSavepoint );
@@ -290,9 +298,11 @@ public with sharing class UnitOfWork
             }
         }
 
+        Integer recordsPlacedInWaves = 0;
         List<List<SObject>> waves = new List<List<SObject>>();
         while ( !currentWave.isEmpty() ) {
             waves.add( currentWave );
+            recordsPlacedInWaves += currentWave.size();
             List<SObject> nextWave = new List<SObject>();
             for ( SObject thisRecord : currentWave ) {
                 for ( SObject thisChildRecord : childrenByRecord.get( thisRecord ) ) {
@@ -305,6 +315,11 @@ public with sharing class UnitOfWork
             }
             currentWave = nextWave;
         }
+
+        if ( recordsPlacedInWaves != records.size() ) {
+            throw new RelationshipException( 'Circular intra-type relationship detected between records of the same SObject type. Records of the same SObject type cannot have circular dependencies.' );
+        }
+
         return waves;
     }
 
@@ -440,6 +455,29 @@ public with sharing class UnitOfWork
         deletedRecordIdsBySobjectType.get( recordSobjectType ).add( record.Id );
     }
 
+    private Boolean isRegisteredForDeletion( SObject record ) {
+        if ( record.Id == null ) {
+            return false;
+        }
+        Set<Id> deletedIds = deletedRecordIdsBySobjectType.get( record.getSObjectType() );
+        return deletedIds != null && deletedIds.contains( record.Id );
+    }
+
+    private Boolean isParentOfAnyRelationship( SObject record ) {
+        if ( record.Id == null ) {
+            return false;
+        }
+        SObjectType recordType = record.getSObjectType();
+        for ( SObjectType thisChildSobjectType : relationships.relationshipsBySobjectType.keySet() ) {
+            for ( Relationship thisRelationship : relationships.relationshipsBySobjectType.get( thisChildSobjectType ) ) {
+                if ( thisRelationship.getParentRecord().getSObjectType() == recordType && thisRelationship.getParentRecord().Id == record.Id ) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private class Relationships {
         @testVisible private Map<SobjectType, List<Relationship>> relationshipsBySobjectType = new Map<SobjectType, List<Relationship>>();
 
@@ -451,6 +489,19 @@ public with sharing class UnitOfWork
             }
 
             relationshipsBySobjectType.get( recordSobjectType ).add( new Relationship( record, relationshipField, parentRecord ) );
+        }
+
+        public Boolean hasRelationship( SObject record, SObjectField relationshipField ) {
+            SobjectType recordSobjectType = record.getSObjectType();
+            if ( !relationshipsBySobjectType.containsKey( recordSobjectType ) ) {
+                return false;
+            }
+            for ( Relationship thisRelationship : relationshipsBySobjectType.get( recordSobjectType ) ) {
+                if ( thisRelationship.getRecord() == record && thisRelationship.getRelationshipField() == relationshipField ) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         // Sets the lookup fields for the given set of records using only priority (non-secondary) relationships.
