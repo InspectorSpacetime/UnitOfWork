@@ -30,43 +30,30 @@ public with sharing class UnitOfWork
     public class CommitException extends UnitOfWorkException {}
     public class RelationshipException extends UnitOfWorkException {}
 
-    @testVisible private List<SObjectType> sobjectTypeOperationOrder;
-    @testVisible private List<SObjectType> sobjectTypeOperationOrderInReverse;
-
     @testVisible private Map<SObjectType, List<SObject>> newRecordsBySobjectType = new Map<SObjectType, List<SObject>>();
     @testVisible private Map<SObjectType, Map<Id, SObject>> dirtyRecordsBySobjectTypeAndRecordId = new Map<SObjectType, Map<Id, SObject>>();
     @testVisible private Map<SObjectType, Set<Id>> deletedRecordIdsBySobjectType = new Map<SObjectType, Set<Id>>();
     @testVisible private Relationships relationships = new Relationships();
     @testVisible private Set<SobjectType> sobjectTypesToBypassSharing = new Set<SobjectType>();
     @testVisible private Set<SobjectType> sobjectTypesToBypassPermissions = new Set<SobjectType>();
+    @testVisible private Set<SObjectField> secondaryFields = new Set<SObjectField>();
+    @testVisible private Boolean committed = false;
 
-    public UnitOfWork( List<SObjectType> sobjectTypeOperationOrder ) {
-        validate( sobjectTypeOperationOrder != null, 'UnitOfWork constructed with a null sobjectTypeOperationOrder' );
-        validate( !sobjectTypeOperationOrder.isEmpty(), 'UnitOfWork constructed with an empty sobjectTypeOperationOrder' );
+    public UnitOfWork() {}
 
-        this.sobjectTypeOperationOrder = sobjectTypeOperationOrder.clone();
-        this.sobjectTypeOperationOrderInReverse = new List<SobjectType>();
-
-        for ( Integer i = this.sobjectTypeOperationOrder.size() - 1; i >= 0; i-- ) {
-            this.sobjectTypeOperationOrderInReverse.add( this.sobjectTypeOperationOrder[ i ] );
-        }
-    }
-
-    // Registers a new record as new so that the unit of work will insert it on commit.
+    // Registers a new record so that the unit of work will insert it on commit.
     public void registerNew( SObject record ) {
         validate( record != null, 'registerNew called with a null record' );
         validate( record.Id == null, 'registerNew called with a record that already has an Id' );
-        validate( sobjectTypeAllowed( record ), 'registerNew called with a record whose SObjectType is not in the sobjectTypeOperationOrder' );
 
         newRecord( record );
     }
 
     // Registers an existing record as dirty so that the unit of work will update it on commit.
-    // If the record has already been registered as dirty, this method will merge the records with field values on this copy taking precedence.
+    // If the record has already been registered as dirty, the records are merged with field values on this copy taking precedence.
     public void registerDirty( SObject record ) {
         validate( record != null, 'registerDirty called with a null record' );
         validate( record.Id != null, 'registerDirty called with a record that does not have an Id' );
-        validate( sobjectTypeAllowed( record ), 'registerDirty called with a record whose SObjectType is not in the sobjectTypeOperationOrder' );
 
         dirtyRecord( record );
     }
@@ -75,7 +62,7 @@ public with sharing class UnitOfWork
     public void registerDeleted( SObject record ) {
         validate( record != null, 'registerDeleted called with a null record' );
         validate( record.Id != null, 'registerDeleted called with a record that does not have an Id' );
-        validate( sobjectTypeAllowed( record ), 'registerDeleted called with a record whose SObjectType is not in the sobjectTypeOperationOrder' );
+        validate( !isParentOfAnyRelationship( record ), 'registerDeleted called with a record that is the parent of a registered relationship' );
 
         deletedRecord( record );
     }
@@ -87,58 +74,78 @@ public with sharing class UnitOfWork
         validate( parentRecord != null, 'registerRelationship called with a null parentRecord' );
 
         SobjectType recordSobjectType = record.getSObjectType();
-        SobjectType parentSobjectType = parentRecord.getSObjectType();
         DescribeFieldResult fieldDescribe = relationshipField.getDescribe();
 
         validate( fieldDescribe.getSobjectType() == recordSobjectType, 'registerRelationship called with a relationship field from a different SobjectType than the record SobjectType' );
-        validate( fieldDescribe.getReferenceTo().contains( parentSobjectType ), 'registerRelationship called with a relationship field that does not point to the parent record SobjectType' );
+        validate( !relationships.hasRelationship( record, relationshipField ), 'registerRelationship called with a relationship field that has already been registered for this record' );
+        validate( !isRegisteredForDeletion( parentRecord ), 'registerRelationship called with a parent record that has been registered for deletion' );
 
         relationships.addRelationship( record, relationshipField, parentRecord );
+    }
+
+    // Declares that priorityField should be set at insert time, and secondaryField should be deferred to a post-insert update.
+    // Used to break circular relationships between two SObject types where both cannot be set at insert time.
+    public void prioritiseRelationship( SObjectField priorityField, SObjectField secondaryField ) {
+        validate( priorityField != null, 'prioritiseRelationship called with a null priorityField' );
+        validate( secondaryField != null, 'prioritiseRelationship called with a null secondaryField' );
+
+        secondaryFields.add( secondaryField );
     }
 
     // Bypasses sharing rules for the given SObjectType during commitWork.
     public void bypassSharing( SObjectType type ) {
         validate( type != null, 'bypassSharing called with a null type' );
-        validate( sobjectTypeAllowed( type ), 'bypassSharing called with a type that was not specified in the sobjectTypeOperationOrder when the UnitOfWork was constructed' );
 
         sobjectTypesToBypassSharing.add( type );
     }
 
-    // Bypasses CRUD rules and FLS rules for the given SObjectType during commitWork.
+    // Bypasses CRUD and FLS rules for the given SObjectType during commitWork.
     public void bypassPermissions( SObjectType type ) {
         validate( type != null, 'bypassPermissions called with a null type' );
-        validate( sobjectTypeAllowed( type ), 'bypassPermissions called with a type that was not specified in the sobjectTypeOperationOrder when the UnitOfWork was constructed' );
 
         sobjectTypesToBypassPermissions.add( type );
     }
 
     // Commits all the changes to the database.
     public void commitWork() {
+        validate( !committed, 'commitWork has already been called on this UnitOfWork instance' );
+
         Savepoint preCommitSavepoint = Database.setSavepoint();
 
         try {
-            // Perform non-destructive DML operations by looping through sobjectTypeOperationOrder
-            for ( SobjectType thisSobjectType : sobjectTypeOperationOrder ) {
-                // Apply any relationships for the sobject type
-                relationships.applyRelationshipsForSobjectType( thisSobjectType );
+            List<SObjectType> orderedSobjectTypes = getSobjectTypeOrder();
 
-                // Insert the sobject type
-                insertRecordsForSobjectType( thisSobjectType );
+            List<SObjectType> reversedOrderSobjectTypes = new List<SObjectType>();
+            for ( Integer i = orderedSobjectTypes.size() - 1; i >= 0; i-- ) {
+                reversedOrderSobjectTypes.add( orderedSobjectTypes[i] );
+            }
 
-                // Update the sobject type
+            // Insert new records in dependency order, splitting intra-type relationships into waves
+            for ( SObjectType thisSobjectType : orderedSobjectTypes ) {
+                insertRecordsForSobjectTypeInWaves( thisSobjectType );
+            }
+
+            // Apply deferred secondary relationships by merging into dirty records
+            applySecondaryRelationships();
+
+            // Apply priority relationships for dirty records and update all dirty records
+            for ( SObjectType thisSobjectType : orderedSobjectTypes ) {
+                applyPriorityRelationshipsForDirtyRecordsOfSobjectType( thisSobjectType );
                 updateRecordsForSobjectType( thisSobjectType );
             }
-            // Perform destructive DML operations by looping through sobjectTypeOperationOrderInReverse
-            for ( SobjectType thisSobjectType : sobjectTypeOperationOrderInReverse ) {
-                // Delete the sobject type
+
+            // Delete records in reverse dependency order
+            for ( SObjectType thisSobjectType : reversedOrderSobjectTypes ) {
                 deleteRecordsForSobjectType( thisSobjectType );
             }
+
+            committed = true;
         }
         catch ( DmlException ex ) {
             Database.rollback( preCommitSavepoint );
             List<String> dmlExceptions = new List<String>();
-            for (Integer dmlExceptionIndex = 0; dmlExceptionIndex < ex.getNumDml(); dmlExceptionIndex++) {
-                dmlExceptions.add( ex.getDmlMessage( dmlExceptionIndex ) );
+            for ( Integer i = 0; i < ex.getNumDml(); i++ ) {
+                dmlExceptions.add( ex.getDmlMessage( i ) );
             }
             throw new CommitException( 'commitWork failed with DmlExceptions:\n' + String.join( dmlExceptions, '\n' ) );
         }
@@ -148,58 +155,270 @@ public with sharing class UnitOfWork
         }
     }
 
-    private void insertRecordsForSobjectType( SObjectType sobjectType ) {
+    // Builds a topologically sorted list of all SObject types involved in this unit of work,
+    // using only the priority (non-secondary) relationships as inter-type dependency edges.
+    private List<SObjectType> getSobjectTypeOrder() {
 
+        Set<SObjectType> combinedSobjectTypes = new Set<SObjectType>();
+        combinedSobjectTypes.addAll( newRecordsBySobjectType.keySet() );
+        combinedSobjectTypes.addAll( dirtyRecordsBySobjectTypeAndRecordId.keySet() );
+        combinedSobjectTypes.addAll( deletedRecordIdsBySobjectType.keySet() );
+        combinedSobjectTypes.addAll( relationships.relationshipsBySobjectType.keySet() );
+
+        // Collect every type referenced across all three operation maps
+        Map<SObjectType, Set<SObjectType>> dependentSobjectTypesBySobjectType = new Map<SObjectType, Set<SObjectType>>();
+
+        for ( SObjectType thisSobjectType : combinedSobjectTypes ) {
+            dependentSobjectTypesBySobjectType.put( thisSobjectType, new Set<SObjectType>() );
+        }
+
+        // Add inter-type edges from priority relationships: child depends on parent
+        for ( SObjectType thisChildType : relationships.relationshipsBySobjectType.keySet() ) {
+            for ( Relationship thisRelationship : relationships.relationshipsBySobjectType.get( thisChildType ) ) {
+                if ( secondaryFields.contains( thisRelationship.getRelationshipField() ) ) {
+                    continue; // deferred — does not constrain insert order
+                }
+                SObjectType parentType = thisRelationship.getParentRecord().getSObjectType();
+                if ( parentType == thisChildType ) {
+                    continue; // intra-type — handled at the record level, not the type level
+                }
+                dependentSobjectTypesBySobjectType.get( thisChildType ).add( parentType );
+            }
+        }
+
+        return topologicalSortTypes( dependentSobjectTypesBySobjectType );
+    }
+
+    // Kahn's algorithm: returns types in an order where every type appears after its dependencies.
+    // Throws RelationshipException if a cycle exists where prioritiseRelationship was not called to break it.
+    private List<SObjectType> topologicalSortTypes( Map<SObjectType, Set<SObjectType>> dependentSobjectTypesBySobjectType ) {
+        Map<SObjectType, Integer> inDegreeBySobjectType = new Map<SObjectType, Integer>();
+        Map<SObjectType, Set<SObjectType>> reverseDepsBySobjectType = new Map<SObjectType, Set<SObjectType>>();
+
+        for ( SObjectType thisSobjectType : dependentSobjectTypesBySobjectType.keySet() ) {
+            inDegreeBySobjectType.put( thisSobjectType, inDegreeBySobjectType.get( thisSobjectType ) ?? 0 );
+            reverseDepsBySobjectType.put( thisSobjectType, reverseDepsBySobjectType.get( thisSobjectType ) ?? new Set<SObjectType>() );
+
+            for ( SObjectType parentSobjectType : dependentSobjectTypesBySobjectType.get( thisSobjectType ) ) {
+                reverseDepsBySobjectType.put( parentSobjectType, reverseDepsBySobjectType.get( parentSobjectType ) ?? new Set<SObjectType>() );
+                reverseDepsBySobjectType.get( parentSobjectType ).add( thisSobjectType );
+                inDegreeBySobjectType.put( thisSobjectType, inDegreeBySobjectType.get( thisSobjectType ) + 1 );
+            }
+        }
+
+        List<SObjectType> sobjectTypeQueue = new List<SObjectType>();
+        for ( SObjectType thisSobjectType : inDegreeBySobjectType.keySet() ) {
+            if ( inDegreeBySobjectType.get( thisSobjectType ) == 0 ) {
+                sobjectTypeQueue.add( thisSobjectType );
+            }
+        }
+
+        List<SObjectType> sortedSobjectTypes = new List<SObjectType>();
+        while ( !sobjectTypeQueue.isEmpty() ) {
+            SObjectType currentSobjectType = sobjectTypeQueue.remove( 0 );
+            sortedSobjectTypes.add( currentSobjectType );
+            for ( SObjectType dependentSobjectType : reverseDepsBySobjectType.get( currentSobjectType ) ) {
+                Integer newDegree = inDegreeBySobjectType.get( dependentSobjectType ) - 1;
+                inDegreeBySobjectType.put( dependentSobjectType, newDegree );
+                if ( newDegree == 0 ) {
+                    sobjectTypeQueue.add( dependentSobjectType );
+                }
+            }
+        }
+
+        if ( sortedSobjectTypes.size() != dependentSobjectTypesBySobjectType.size() ) {
+            // TODO: test circular relationship error
+            throw new RelationshipException( 'Circular relationship detected between SObject types. Use prioritiseRelationship to resolve the cycle.' );
+        }
+
+        return sortedSobjectTypes;
+    }
+
+    // Inserts new records for one SObject type. If there are intra-type priority relationships,
+    // records are split into dependency-ordered waves so parents are inserted before children.
+    private void insertRecordsForSobjectTypeInWaves( SObjectType sobjectType ) {
         List<SObject> recordsToInsert = newRecordsBySobjectType.get( sobjectType );
 
         if ( recordsToInsert == null || recordsToInsert.isEmpty() ) {
             return;
         }
 
+        // Collect intra-type priority dependencies: record -> its same-type parent record
+        Map<SObject, SObject> intraTypeParent = new Map<SObject, SObject>();
+        if ( relationships.relationshipsBySobjectType.containsKey( sobjectType ) ) {
+            for ( Relationship rel : relationships.relationshipsBySobjectType.get( sobjectType ) ) {
+                if ( secondaryFields.contains( rel.getRelationshipField() ) ) continue;
+                if ( rel.getParentRecord().getSObjectType() == sobjectType ) {
+                    intraTypeParent.put( rel.getRecord(), rel.getParentRecord() );
+                }
+            }
+        }
+
+        if ( intraTypeParent.isEmpty() ) {
+            // No intra-type dependencies: apply all priority relationships and insert in one batch
+            relationships.applyPriorityRelationshipsForRecords( sobjectType, secondaryFields, new Set<SObject>( recordsToInsert ) );
+            insertRecords( recordsToInsert, sobjectType );
+        } else {
+            // Split into waves so that parent records are inserted before their children
+            List<List<SObject>> waves = topologicalSortRecords( recordsToInsert, intraTypeParent );
+            for ( List<SObject> wave : waves ) {
+                relationships.applyPriorityRelationshipsForRecords( sobjectType, secondaryFields, new Set<SObject>( wave ) );
+                insertRecords( wave, sobjectType );
+            }
+        }
+    }
+
+    // Topologically sorts records within a single SObject type into insertion waves.
+    // intraTypeParent maps each child record to the same-type parent record it depends on.
+    // Returns a list of waves; all records in a wave can be inserted in a single DML statement.
+    private List<List<SObject>> topologicalSortRecords( List<SObject> records, Map<SObject, SObject> intraTypeParent ) {
+        Map<SObject, Integer> inDegreeByRecord = new Map<SObject, Integer>();
+        Map<SObject, List<SObject>> childrenByRecord = new Map<SObject, List<SObject>>();
+
+        for ( SObject thisRecord : records ) {
+            inDegreeByRecord.put( thisRecord, inDegreeByRecord.get( thisRecord ) ?? 0 );
+            childrenByRecord.put( thisRecord, childrenByRecord.get( thisRecord ) ?? new List<SObject>() );
+        }
+
+        for ( SObject record : records ) {
+            if ( intraTypeParent.containsKey( record ) ) {
+                SObject parent = intraTypeParent.get( record );
+                inDegreeByRecord.put( record, inDegreeByRecord.get( record ) + 1 );
+                if ( !childrenByRecord.containsKey( parent ) ) {
+                    childrenByRecord.put( parent, new List<SObject>() );
+                }
+                childrenByRecord.get( parent ).add( record );
+            }
+        }
+
+        List<SObject> currentWave = new List<SObject>();
+        for ( SObject thisRecord : records ) {
+            if ( inDegreeByRecord.get( thisRecord ) == 0 ) {
+                currentWave.add( thisRecord );
+            }
+        }
+
+        Integer recordsPlacedInWaves = 0;
+        List<List<SObject>> waves = new List<List<SObject>>();
+        while ( !currentWave.isEmpty() ) {
+            waves.add( currentWave );
+            recordsPlacedInWaves += currentWave.size();
+            List<SObject> nextWave = new List<SObject>();
+            for ( SObject thisRecord : currentWave ) {
+                for ( SObject thisChildRecord : childrenByRecord.get( thisRecord ) ) {
+                    Integer newInDegree = inDegreeByRecord.get( thisChildRecord ) - 1;
+                    inDegreeByRecord.put( thisChildRecord, newInDegree );
+                    if ( newInDegree == 0 ) {
+                        nextWave.add( thisChildRecord );
+                    }
+                }
+            }
+            currentWave = nextWave;
+        }
+
+        if ( recordsPlacedInWaves != records.size() ) {
+            throw new RelationshipException( 'Circular intra-type relationship detected between records of the same SObject type. Records of the same SObject type cannot have circular dependencies.' );
+        }
+
+        return waves;
+    }
+
+    // After all inserts are complete, sets each secondary (deferred) relationship field and merges the change
+    // into the dirty record map so the unified update pass issues a single DML per type.
+    // This prevents a double-update race where a separate updateRecordList call would overwrite fields
+    // already registered dirty on the same record.
+    private void applySecondaryRelationships() {
+        if ( ! secondaryFields.isEmpty() ) {
+            for ( SObjectType thisChildType : relationships.relationshipsBySobjectType.keySet() ) {
+                for ( Relationship thisRelationship : relationships.relationshipsBySobjectType.get( thisChildType ) ) {
+                    if ( secondaryFields.contains( thisRelationship.getRelationshipField() ) ) {
+                        SObject parentRecord = thisRelationship.getParentRecord();
+                        if ( parentRecord.Id == null ) {
+                            throw new RelationshipException( 'Unable to set secondary relationship ' + thisRelationship.getRelationshipField() + ' on record ' + thisRelationship.getRecord() + ' because the parent record has no Id after insert.' );
+                        }
+                        thisRelationship.getRecord().put( thisRelationship.getRelationshipField(), parentRecord.Id );
+
+                        // Merge the modified record into the dirty map so the update pass picks it up.
+                        // If the record was already registered dirty this merges the new field in rather than
+                        // creating a conflicting second update.
+                        dirtyRecord( thisRelationship.getRecord() );
+                    }
+                }
+            }
+        }
+    }
+
+    // Applies priority (non-secondary) relationships for records that were registered dirty rather than new.
+    // New records have their relationships applied during insert waves; dirty records need this separate pass
+    // before their update DML so that lookup fields are set correctly.
+    private void applyPriorityRelationshipsForDirtyRecordsOfSobjectType( SObjectType sobjectType ) {
+        if ( relationships.relationshipsBySobjectType.containsKey( sobjectType ) ) {
+            Set<SObject> newRecordsForType = newRecordsBySobjectType.containsKey( sobjectType )
+                ? new Set<SObject>( newRecordsBySobjectType.get( sobjectType ) )
+                : new Set<SObject>();
+
+            for ( Relationship thisRelationship : relationships.relationshipsBySobjectType.get( sobjectType ) ) {
+                if ( secondaryFields.contains( thisRelationship.getRelationshipField() ) ) {
+                    continue; // handled by applySecondaryRelationships
+                }
+                if ( newRecordsForType.contains( thisRelationship.getRecord() ) ) {
+                    continue; // already applied during insert wave
+                }
+
+                SObject parentRecord = thisRelationship.getParentRecord();
+                if ( parentRecord.Id == null ) {
+                    throw new RelationshipException( 'Unable to set relationship ' + thisRelationship.getRelationshipField() + ' on record ' + thisRelationship.getRecord() + ' because the parent record has no Id.' );
+                }
+                thisRelationship.getRecord().put( thisRelationship.getRelationshipField(), parentRecord.Id );
+
+                // Merge the modified record into the dirty map so the update pass issues the DML.
+                dirtyRecord( thisRelationship.getRecord() );
+            }
+        }
+    }
+
+    private void insertRecords( List<SObject> records, SObjectType sobjectType ) {
         AccessLevel accessLevel = sobjectTypesToBypassPermissions.contains( sobjectType ) ? AccessLevel.SYSTEM_MODE : AccessLevel.USER_MODE;
         Boolean bypassSharing = sobjectTypesToBypassSharing.contains( sobjectType );
 
         if ( bypassSharing ) {
-            new WithoutSharing().insertRecords( recordsToInsert, accessLevel );
-        }
-        else {
-            Database.insert( recordsToInsert, accessLevel );
+            new WithoutSharing().insertRecords( records, accessLevel );
+        } else {
+            Database.insert( records, accessLevel );
         }
     }
 
     private void updateRecordsForSobjectType( SObjectType sobjectType ) {
         List<SObject> recordsToUpdate = dirtyRecordsBySobjectTypeAndRecordId.get( sobjectType )?.values();
 
-        if ( recordsToUpdate == null || recordsToUpdate.isEmpty() ) {
-            return;
+        if ( recordsToUpdate != null && !recordsToUpdate.isEmpty() ) {
+            updateRecordList( recordsToUpdate, sobjectType );
         }
+    }
 
+    private void updateRecordList( List<SObject> records, SObjectType sobjectType ) {
         AccessLevel accessLevel = sobjectTypesToBypassPermissions.contains( sobjectType ) ? AccessLevel.SYSTEM_MODE : AccessLevel.USER_MODE;
         Boolean bypassSharing = sobjectTypesToBypassSharing.contains( sobjectType );
 
         if ( bypassSharing ) {
-            new WithoutSharing().updateRecords( recordsToUpdate, accessLevel );
-        }
-        else {
-            Database.update( recordsToUpdate, accessLevel );
+            new WithoutSharing().updateRecords( records, accessLevel );
+        } else {
+            Database.update( records, accessLevel );
         }
     }
 
     private void deleteRecordsForSobjectType( SObjectType sobjectType ) {
         Set<Id> recordIdsToDelete = deletedRecordIdsBySobjectType.get( sobjectType );
 
-        if ( recordIdsToDelete == null || recordIdsToDelete.isEmpty() ) {
-            return;
-        }
+        if ( recordIdsToDelete != null && !recordIdsToDelete.isEmpty() ) {
+            AccessLevel accessLevel = sobjectTypesToBypassPermissions.contains( sobjectType ) ? AccessLevel.SYSTEM_MODE : AccessLevel.USER_MODE;
+            Boolean bypassSharing = sobjectTypesToBypassSharing.contains( sobjectType );
 
-        AccessLevel accessLevel = sobjectTypesToBypassPermissions.contains( sobjectType ) ? AccessLevel.SYSTEM_MODE : AccessLevel.USER_MODE;
-        Boolean bypassSharing = sobjectTypesToBypassSharing.contains( sobjectType );
-
-        if ( bypassSharing ) {
-            new WithoutSharing().deleteRecords( new List<Id>( recordIdsToDelete ), accessLevel );
-        }
-        else {
-            Database.delete( new List<Id>( recordIdsToDelete ), accessLevel );
+            if ( bypassSharing ) {
+                new WithoutSharing().deleteRecords( new List<Id>( recordIdsToDelete ), accessLevel );
+            } else {
+                Database.delete( new List<Id>( recordIdsToDelete ), accessLevel );
+            }
         }
     }
 
@@ -236,6 +455,29 @@ public with sharing class UnitOfWork
         deletedRecordIdsBySobjectType.get( recordSobjectType ).add( record.Id );
     }
 
+    private Boolean isRegisteredForDeletion( SObject record ) {
+        if ( record.Id == null ) {
+            return false;
+        }
+        Set<Id> deletedIds = deletedRecordIdsBySobjectType.get( record.getSObjectType() );
+        return deletedIds != null && deletedIds.contains( record.Id );
+    }
+
+    private Boolean isParentOfAnyRelationship( SObject record ) {
+        if ( record.Id == null ) {
+            return false;
+        }
+        SObjectType recordType = record.getSObjectType();
+        for ( SObjectType thisChildSobjectType : relationships.relationshipsBySobjectType.keySet() ) {
+            for ( Relationship thisRelationship : relationships.relationshipsBySobjectType.get( thisChildSobjectType ) ) {
+                if ( thisRelationship.getParentRecord().getSObjectType() == recordType && thisRelationship.getParentRecord().Id == record.Id ) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private class Relationships {
         @testVisible private Map<SobjectType, List<Relationship>> relationshipsBySobjectType = new Map<SobjectType, List<Relationship>>();
 
@@ -249,15 +491,32 @@ public with sharing class UnitOfWork
             relationshipsBySobjectType.get( recordSobjectType ).add( new Relationship( record, relationshipField, parentRecord ) );
         }
 
-        // Sets the lookup fields with the Id from the parent records. Note that this will fail if the sobjectTypeOperationOrder was configured incorrectly leading to the parents not being inserted yet.
-        public void applyRelationshipsForSobjectType( SObjectType sobjectType ) {
-            if ( relationshipsBySobjectType.containsKey( sobjectType ) ) {
-                for ( Relationship thisRelationship : relationshipsBySobjectType.get( sobjectType ) ) {
-                    if ( thisRelationship.getParentRecord().Id == null ) {
-                        throw new RelationshipException( 'Unable to set relationship ' + thisRelationship.getRelationshipField() + ' on record ' + thisRelationship.getRecord() + ' because the parent record was not yet inserted. You may need to change your sobjectTypeOperationOrder.' );
-                    }
-                    thisRelationship.getRecord().put( thisRelationship.getRelationshipField(), thisRelationship.getParentRecord().Id );
+        public Boolean hasRelationship( SObject record, SObjectField relationshipField ) {
+            SobjectType recordSobjectType = record.getSObjectType();
+            if ( !relationshipsBySobjectType.containsKey( recordSobjectType ) ) {
+                return false;
+            }
+            for ( Relationship thisRelationship : relationshipsBySobjectType.get( recordSobjectType ) ) {
+                if ( thisRelationship.getRecord() == record && thisRelationship.getRelationshipField() == relationshipField ) {
+                    return true;
                 }
+            }
+            return false;
+        }
+
+        // Sets the lookup fields for the given set of records using only priority (non-secondary) relationships.
+        // Throws RelationshipException if a priority relationship's parent has not yet been inserted.
+        public void applyPriorityRelationshipsForRecords( SObjectType sobjectType, Set<SObjectField> secondaryFields, Set<SObject> recordsInWave ) {
+            if ( !relationshipsBySobjectType.containsKey( sobjectType ) ) return;
+
+            for ( Relationship rel : relationshipsBySobjectType.get( sobjectType ) ) {
+                if ( secondaryFields.contains( rel.getRelationshipField() ) ) continue;
+                if ( !recordsInWave.contains( rel.getRecord() ) ) continue;
+
+                if ( rel.getParentRecord().Id == null ) {
+                    throw new RelationshipException( 'Unable to set relationship ' + rel.getRelationshipField() + ' on record ' + rel.getRecord() + ' because the parent record was not yet inserted.' );
+                }
+                rel.getRecord().put( rel.getRelationshipField(), rel.getParentRecord().Id );
             }
         }
     }
@@ -287,17 +546,9 @@ public with sharing class UnitOfWork
             this.parentRecord = parentRecord;
         }
 
-        public SObject getRecord() {
-            return record;
-        }
-
-        public SObjectField getRelationshipField() {
-            return relationshipField;
-        }
-
-        public SObject getParentRecord() {
-            return parentRecord;
-        }
+        public SObject getRecord() { return record; }
+        public SObjectField getRelationshipField() { return relationshipField; }
+        public SObject getParentRecord() { return parentRecord; }
     }
 
     // Throws a ValidationException if the condition is false
@@ -309,16 +560,8 @@ public with sharing class UnitOfWork
 
     // Takes field values from the newRecord and sets them on the existingRecord
     private void mergeRecords( SObject existingRecord, SObject newRecord ) {
-        for ( String thisPopulatedField : newRecord.getPopulatedFieldsAsMap().keySet() ) {
-            existingRecord.put( thisPopulatedField, newRecord.get( thisPopulatedField ) );
+        for ( String field : newRecord.getPopulatedFieldsAsMap().keySet() ) {
+            existingRecord.put( field, newRecord.get( field ) );
         }
-    }
-
-    private Boolean sobjectTypeAllowed( SObject record ) {
-        return sobjectTypeOperationOrder.contains( record.getSObjectType() );
-    }
-
-    private Boolean sobjectTypeAllowed( SObjectType type ) {
-        return sobjectTypeOperationOrder.contains( type );
     }
 }
