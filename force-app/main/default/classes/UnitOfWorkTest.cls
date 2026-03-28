@@ -204,6 +204,58 @@ private class UnitOfWorkTest {
     }
 
     @isTest
+    private static void registerPermanentlyDeleted_whenCalledWithNullRecord_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        SObject nullRecord;
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.registerPermanentlyDeleted( nullRecord );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'registerPermanentlyDeleted, when called with a null record, should throw an exception' );
+        Assert.areEqual( 'registerPermanentlyDeleted called with a null record', thrownException.getMessage(), 'registerPermanentlyDeleted, when called with a null record, should throw a ValidationException' );
+    }
+
+    @isTest
+    private static void registerPermanentlyDeleted_whenCalledWithRecordWithNullId_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        Account accountWithNullId = new Account( Name = 'Account with Null Id' );
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.registerPermanentlyDeleted( accountWithNullId );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'registerPermanentlyDeleted, when called with a record with a null Id, should throw an exception' );
+        Assert.areEqual( 'registerPermanentlyDeleted called with a record that does not have an Id', thrownException.getMessage(), 'registerPermanentlyDeleted, when called with a record with a null Id, should throw a ValidationException' );
+    }
+
+    @isTest
+    private static void registerPermanentlyDeleted_whenCalledWithRecordInSobjectTypeOperationOrder_registersRecord() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        Account testAccount = new Account( Id = '001000000000000', Name = 'Test Account' );
+
+        Test.startTest();
+        unitOfWork.registerPermanentlyDeleted( testAccount );
+        Test.stopTest();
+
+        Assert.isTrue( unitOfWork.permanentlyDeletedRecordIdsBySobjectType.get( Account.SObjectType ).contains( testAccount.Id ), 'registerPermanentlyDeleted, when called with a record in the sobjectTypeOperationOrder, should register the record' );
+    }
+
+    @isTest
     private static void registerNew_whenCalledWithListOfRecords_registersAllRecords() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Account accountA = new Account( Name = 'Account A' );
@@ -369,6 +421,61 @@ private class UnitOfWorkTest {
     }
 
     @isTest
+    private static void registerPermanentlyDeleted_whenCalledWithListOfRecords_registersAllRecords() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        Account accountA = new Account( Id = '001000000000001', Name = 'Account A' );
+        Account accountB = new Account( Id = '001000000000002', Name = 'Account B' );
+
+        Test.startTest();
+        unitOfWork.registerPermanentlyDeleted( new List<SObject>{ accountA, accountB } );
+        Test.stopTest();
+
+        Set<Id> registeredAccountIds = unitOfWork.permanentlyDeletedRecordIdsBySobjectType.get( Account.SObjectType );
+        Assert.areEqual( 2, registeredAccountIds.size(), 'registerPermanentlyDeleted, when called with a list of records, should register all records' );
+        Assert.isTrue( registeredAccountIds.contains( accountA.Id ), 'registerPermanentlyDeleted, when called with a list of records, should register the first record' );
+        Assert.isTrue( registeredAccountIds.contains( accountB.Id ), 'registerPermanentlyDeleted, when called with a list of records, should register the second record' );
+    }
+
+    @isTest
+    private static void registerPermanentlyDeleted_whenCalledWithNullList_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        List<SObject> nullRecords;
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.registerPermanentlyDeleted( nullRecords );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'registerPermanentlyDeleted, when called with a null records list, should throw an exception' );
+        Assert.areEqual( 'registerPermanentlyDeleted called with a null records list', thrownException.getMessage(), 'registerPermanentlyDeleted, when called with a null records list, should throw a ValidationException' );
+    }
+
+    @isTest
+    private static void registerPermanentlyDeleted_whenCalledWithEmptyList_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.registerPermanentlyDeleted( new List<SObject>() );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'registerPermanentlyDeleted, when called with an empty records list, should throw an exception' );
+        Assert.areEqual( 'registerPermanentlyDeleted called with an empty records list', thrownException.getMessage(), 'registerPermanentlyDeleted, when called with an empty records list, should throw a ValidationException' );
+    }
+
+    @isTest
     private static void registerRelationship_whenCalledWithNullRecord_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         SObject nullRecord;
@@ -519,6 +626,29 @@ private class UnitOfWorkTest {
     }
 
     @isTest
+    private static void registerRelationship_whenParentRecordAlreadyRegisteredForPermanentDeletion_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
+        Account parentAccount = new Account( Id = '001000000000000', Name = 'Parent Account' );
+
+        unitOfWork.registerPermanentlyDeleted( parentAccount );
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.registerRelationship( testContact, Contact.AccountId, parentAccount );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'registerRelationship, when the parent record has been registered for permanent deletion, should throw an exception' );
+        Assert.areEqual( 'registerRelationship called with a parent record that has been registered for deletion', thrownException.getMessage(), 'registerRelationship, when the parent record has been registered for permanent deletion, should throw a ValidationException' );
+    }
+
+    @isTest
     private static void registerDeleted_whenRecordIsParentOfRegisteredRelationship_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
@@ -539,6 +669,29 @@ private class UnitOfWorkTest {
 
         Assert.isNotNull( thrownException, 'registerDeleted, when the record is the parent of a registered relationship, should throw an exception' );
         Assert.areEqual( 'registerDeleted called with a record that is the parent of a registered relationship', thrownException.getMessage(), 'registerDeleted, when the record is the parent of a registered relationship, should throw a ValidationException' );
+    }
+
+    @isTest
+    private static void registerPermanentlyDeleted_whenRecordIsParentOfRegisteredRelationship_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
+        Account parentAccount = new Account( Id = '001000000000000', Name = 'Parent Account' );
+
+        unitOfWork.registerRelationship( testContact, Contact.AccountId, parentAccount );
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.registerPermanentlyDeleted( parentAccount );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'registerPermanentlyDeleted, when the record is the parent of a registered relationship, should throw an exception' );
+        Assert.areEqual( 'registerPermanentlyDeleted called with a record that is the parent of a registered relationship', thrownException.getMessage(), 'registerPermanentlyDeleted, when the record is the parent of a registered relationship, should throw a ValidationException' );
     }
 
     @isTest
@@ -1054,6 +1207,31 @@ private class UnitOfWorkTest {
 
         Assert.isTrue( testAccountsAfter.isEmpty(), 'commitWork, when deleting a record the user has permission for and then one it does not have permission for but has a bypass permission for, should commit successfully - account deleted' );
         Assert.isTrue( testContactsAfter.isEmpty(), 'commitWork, when deleting a record the user has permission for and then one it does not have permission for but has a bypass permission for, should commit successfully - contact deleted' );
+    }
+
+    @isTest
+    private static void commitWork_whenRecordIsRegisteredForPermanentDeletion_deletesAndCallsHardDeleteSuccessfully() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType }, new Set<SobjectField> {} );
+
+        Account testAccount;
+        System.runAs( testUser ) {
+            testAccount = new Account( Name = 'Test Account' );
+            insert testAccount;
+        }
+
+        Test.startTest();
+        System.runAs( testUser ) {
+            unitOfWork.registerPermanentlyDeleted( testAccount );
+            unitOfWork.commitWork();
+        }
+        Test.stopTest();
+
+        List<Account> liveAccountsAfter = [ SELECT Id FROM Account WHERE Id = :testAccount.Id ];
+
+        Assert.isTrue( liveAccountsAfter.isEmpty(), 'commitWork, when a record is registered for permanent deletion, should remove it from normal queries' );
+        Assert.isTrue( unitOfWork.successfullyPermanentlyDeletedRecordIds.contains( testAccount.Id ), 'commitWork, when a record is registered for permanent deletion, should record a successful hard delete result for that record' );
     }
 
     @isTest

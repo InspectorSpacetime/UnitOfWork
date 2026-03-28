@@ -33,6 +33,8 @@ public with sharing class UnitOfWork
     @testVisible private Map<SObjectType, List<SObject>> newRecordsBySobjectType = new Map<SObjectType, List<SObject>>();
     @testVisible private Map<SObjectType, Map<Id, SObject>> dirtyRecordsBySobjectTypeAndRecordId = new Map<SObjectType, Map<Id, SObject>>();
     @testVisible private Map<SObjectType, Set<Id>> deletedRecordIdsBySobjectType = new Map<SObjectType, Set<Id>>();
+    @testVisible private Map<SObjectType, Set<Id>> permanentlyDeletedRecordIdsBySobjectType = new Map<SObjectType, Set<Id>>();
+    @testVisible private Set<Id> successfullyPermanentlyDeletedRecordIds = new Set<Id>();
     @testVisible private Relationships relationships = new Relationships();
     @testVisible private Set<SobjectType> sobjectTypesToBypassSharing = new Set<SobjectType>();
     @testVisible private Set<SobjectType> sobjectTypesToBypassPermissions = new Set<SobjectType>();
@@ -91,6 +93,24 @@ public with sharing class UnitOfWork
         validate( !records.isEmpty(), 'registerDeleted called with an empty records list' );
         for ( SObject thisRecord : records ) {
             registerDeleted( thisRecord );
+        }
+    }
+
+    // Registers a record as permanently deleted so that the unit of work will delete it and then empty it from the recycle bin on commit.
+    public void registerPermanentlyDeleted( SObject record ) {
+        validate( record != null, 'registerPermanentlyDeleted called with a null record' );
+        validate( record.Id != null, 'registerPermanentlyDeleted called with a record that does not have an Id' );
+        validate( !isParentOfAnyRelationship( record ), 'registerPermanentlyDeleted called with a record that is the parent of a registered relationship' );
+
+        permanentlyDeletedRecord( record );
+    }
+
+    // Registers a list of records as permanently deleted so that the unit of work will delete them and then empty them from the recycle bin on commit.
+    public void registerPermanentlyDeleted( List<SObject> records ) {
+        validate( records != null, 'registerPermanentlyDeleted called with a null records list' );
+        validate( !records.isEmpty(), 'registerPermanentlyDeleted called with an empty records list' );
+        for ( SObject thisRecord : records ) {
+            registerPermanentlyDeleted( thisRecord );
         }
     }
 
@@ -166,6 +186,9 @@ public with sharing class UnitOfWork
                 deleteRecordsForSobjectType( thisSobjectType );
             }
 
+            // Permanently delete records that were explicitly registered for hard deletion
+            permanentlyDeleteRegisteredRecords();
+
             committed = true;
         }
         catch ( DmlException ex ) {
@@ -190,6 +213,7 @@ public with sharing class UnitOfWork
         combinedSobjectTypes.addAll( newRecordsBySobjectType.keySet() );
         combinedSobjectTypes.addAll( dirtyRecordsBySobjectTypeAndRecordId.keySet() );
         combinedSobjectTypes.addAll( deletedRecordIdsBySobjectType.keySet() );
+        combinedSobjectTypes.addAll( permanentlyDeletedRecordIdsBySobjectType.keySet() );
         combinedSobjectTypes.addAll( relationships.relationshipsBySobjectType.keySet() );
 
         // Collect every type referenced across all three operation maps
@@ -435,7 +459,13 @@ public with sharing class UnitOfWork
     }
 
     private void deleteRecordsForSobjectType( SObjectType sobjectType ) {
-        Set<Id> recordIdsToDelete = deletedRecordIdsBySobjectType.get( sobjectType );
+        Set<Id> recordIdsToDelete = new Set<Id>();
+        if ( deletedRecordIdsBySobjectType.containsKey( sobjectType ) ) {
+            recordIdsToDelete.addAll( deletedRecordIdsBySobjectType.get( sobjectType ) );
+        }
+        if ( permanentlyDeletedRecordIdsBySobjectType.containsKey( sobjectType ) ) {
+            recordIdsToDelete.addAll( permanentlyDeletedRecordIdsBySobjectType.get( sobjectType ) );
+        }
 
         if ( recordIdsToDelete != null && !recordIdsToDelete.isEmpty() ) {
             AccessLevel accessLevel = sobjectTypesToBypassPermissions.contains( sobjectType ) ? AccessLevel.SYSTEM_MODE : AccessLevel.USER_MODE;
@@ -445,6 +475,47 @@ public with sharing class UnitOfWork
                 new WithoutSharing().deleteRecords( new List<Id>( recordIdsToDelete ), accessLevel );
             } else {
                 Database.delete( new List<Id>( recordIdsToDelete ), accessLevel );
+            }
+        }
+    }
+
+    private void permanentlyDeleteRegisteredRecords() {
+        List<SObject> recordsToPermanentlyDeleteWithSharing = new List<SObject>();
+        List<SObject> recordsToPermanentlyDeleteWithoutSharing = new List<SObject>();
+
+        for ( SObjectType thisSobjectType : permanentlyDeletedRecordIdsBySobjectType.keySet() ) {
+            Boolean bypassSharingForThisSobjectType = sobjectTypesToBypassSharing.contains( thisSobjectType );
+            for ( Id thisRecordId : permanentlyDeletedRecordIdsBySobjectType.get( thisSobjectType ) ) {
+                SObject recordStub = thisSobjectType.newSObject( thisRecordId );
+                if ( bypassSharingForThisSobjectType ) {
+                    recordsToPermanentlyDeleteWithoutSharing.add( recordStub );
+                } else {
+                    recordsToPermanentlyDeleteWithSharing.add( recordStub );
+                }
+            }
+        }
+
+        List<String> purgeErrors = new List<String>();
+        if ( !recordsToPermanentlyDeleteWithSharing.isEmpty() ) {
+            collectPermanentDeleteResults( Database.emptyRecycleBin( recordsToPermanentlyDeleteWithSharing ), purgeErrors );
+        }
+        if ( !recordsToPermanentlyDeleteWithoutSharing.isEmpty() ) {
+            collectPermanentDeleteResults( new WithoutSharing().permanentlyDeleteRecords( recordsToPermanentlyDeleteWithoutSharing ), purgeErrors );
+        }
+
+        if ( !purgeErrors.isEmpty() ) {
+            throw new CommitException( 'Permanent delete failed with errors:\n' + String.join( purgeErrors, '\n' ) );
+        }
+    }
+
+    private void collectPermanentDeleteResults( List<Database.EmptyRecycleBinResult> purgeResults, List<String> purgeErrors ) {
+        for ( Database.EmptyRecycleBinResult thisResult : purgeResults ) {
+            if ( thisResult.isSuccess() ) {
+                successfullyPermanentlyDeletedRecordIds.add( thisResult.getId() );
+            } else {
+                for ( Database.Error thisError : thisResult.getErrors() ) {
+                    purgeErrors.add( thisError.getMessage() );
+                }
             }
         }
     }
@@ -482,12 +553,27 @@ public with sharing class UnitOfWork
         deletedRecordIdsBySobjectType.get( recordSobjectType ).add( record.Id );
     }
 
+    private void permanentlyDeletedRecord( SObject record ) {
+        SobjectType recordSobjectType = record.getSObjectType();
+
+        if ( !permanentlyDeletedRecordIdsBySobjectType.containsKey( recordSobjectType ) ) {
+            permanentlyDeletedRecordIdsBySobjectType.put( recordSobjectType, new Set<Id>() );
+        }
+
+        permanentlyDeletedRecordIdsBySobjectType.get( recordSobjectType ).add( record.Id );
+    }
+
     private Boolean isRegisteredForDeletion( SObject record ) {
         if ( record.Id == null ) {
             return false;
         }
         Set<Id> deletedIds = deletedRecordIdsBySobjectType.get( record.getSObjectType() );
-        return deletedIds != null && deletedIds.contains( record.Id );
+        if ( deletedIds != null && deletedIds.contains( record.Id ) ) {
+            return true;
+        }
+
+        Set<Id> permanentlyDeletedIds = permanentlyDeletedRecordIdsBySobjectType.get( record.getSObjectType() );
+        return permanentlyDeletedIds != null && permanentlyDeletedIds.contains( record.Id );
     }
 
     private Boolean isParentOfAnyRelationship( SObject record ) {
@@ -559,6 +645,10 @@ public with sharing class UnitOfWork
 
         public void deleteRecords( List<Id> recordIds, AccessLevel accessLevel ) {
             Database.delete( recordIds, accessLevel );
+        }
+
+        public List<Database.EmptyRecycleBinResult> permanentlyDeleteRecords( List<SObject> records ) {
+            return Database.emptyRecycleBin( records );
         }
     }
 
