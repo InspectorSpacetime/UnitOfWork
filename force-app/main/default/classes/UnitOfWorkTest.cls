@@ -220,6 +220,45 @@ private class UnitOfWorkTest {
     }
 
     @isTest
+    private static void registerNew_whenCalledWithNullList_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        List<SObject> nullRecords;
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.registerNew( nullRecords );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'registerNew, when called with a null records list, should throw an exception' );
+        Assert.areEqual( 'registerNew called with a null records list', thrownException.getMessage(), 'registerNew, when called with a null records list, should throw a ValidationException' );
+    }
+
+    @isTest
+    private static void registerNew_whenCalledWithEmptyList_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.registerNew( new List<SObject>() );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'registerNew, when called with an empty records list, should throw an exception' );
+        Assert.areEqual( 'registerNew called with an empty records list', thrownException.getMessage(), 'registerNew, when called with an empty records list, should throw a ValidationException' );
+    }
+
+    @isTest
     private static void registerDirty_whenCalledWithListOfRecords_registersAllRecords() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Account accountA = new Account( Id = '001000000000001', Name = 'Account A' );
@@ -236,6 +275,45 @@ private class UnitOfWorkTest {
     }
 
     @isTest
+    private static void registerDirty_whenCalledWithNullList_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        List<SObject> nullRecords;
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.registerDirty( nullRecords );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'registerDirty, when called with a null records list, should throw an exception' );
+        Assert.areEqual( 'registerDirty called with a null records list', thrownException.getMessage(), 'registerDirty, when called with a null records list, should throw a ValidationException' );
+    }
+
+    @isTest
+    private static void registerDirty_whenCalledWithEmptyList_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.registerDirty( new List<SObject>() );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'registerDirty, when called with an empty records list, should throw an exception' );
+        Assert.areEqual( 'registerDirty called with an empty records list', thrownException.getMessage(), 'registerDirty, when called with an empty records list, should throw a ValidationException' );
+    }
+
+    @isTest
     private static void registerDeleted_whenCalledWithListOfRecords_registersAllRecords() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Account accountA = new Account( Id = '001000000000001', Name = 'Account A' );
@@ -249,6 +327,45 @@ private class UnitOfWorkTest {
         Assert.areEqual( 2, registeredAccountIds.size(), 'registerDeleted, when called with a list of records, should register all records' );
         Assert.isTrue( registeredAccountIds.contains( accountA.Id ), 'registerDeleted, when called with a list of records, should register the first record' );
         Assert.isTrue( registeredAccountIds.contains( accountB.Id ), 'registerDeleted, when called with a list of records, should register the second record' );
+    }
+
+    @isTest
+    private static void registerDeleted_whenCalledWithNullList_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        List<SObject> nullRecords;
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.registerDeleted( nullRecords );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'registerDeleted, when called with a null records list, should throw an exception' );
+        Assert.areEqual( 'registerDeleted called with a null records list', thrownException.getMessage(), 'registerDeleted, when called with a null records list, should throw a ValidationException' );
+    }
+
+    @isTest
+    private static void registerDeleted_whenCalledWithEmptyList_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.registerDeleted( new List<SObject>() );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'registerDeleted, when called with an empty records list, should throw an exception' );
+        Assert.areEqual( 'registerDeleted called with an empty records list', thrownException.getMessage(), 'registerDeleted, when called with an empty records list, should throw a ValidationException' );
     }
 
     @isTest
