@@ -158,10 +158,6 @@ uow.commitWork();
 
 **Permission and Sharing Bypasses**:
 * `bypassSharing` and `bypassPermissions` reject null inputs.
-* DML for a bypassed type executes in system mode regardless of the running user's permissions.
+* `bypassPermissions` causes DML for that `SObjectType` to execute in `SYSTEM_MODE`, bypassing CRUD/FLS checks.
 * Permission failures for non-bypassed types trigger a rollback and a `CommitException`.
-
-**Documentation Notes / Intended Contracts**:
-* `registerRelationship` may be used with simulated relationships such as text fields storing record Ids.
-* Delete ordering is only guaranteed for dependencies represented by registered relationships.
-* Registering the same record as dirty and deleted in one Unit of Work is supported and results in update-then-delete behavior.
+* `bypassSharing` itself is not directly verified by the tests, because its behaviour depends on org sharing configuration and the package is intended to deploy cleanly even in environments where relevant objects are configured with public read/write access.
