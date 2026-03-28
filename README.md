@@ -4,16 +4,23 @@ A simple Unit of Work implementation in the Salesforce Apex programming language
 
 ## Key Features
 
-* **Automatic DML Ordering**: Rather than requiring a pre-defined list of `SObjectType`s, the Unit of Work automatically determines the correct insert, update and delete order at commit time using a graph-based topological sort, derived from the relationships you register. Parent records are always inserted before their children; deletions happen in reverse order.
+* **Automatic DML Ordering**: Rather than requiring a pre-defined list of `SObjectType`s, the Unit of Work automatically determines the correct insert, update and delete order at commit time using a graph-based topological sort, derived from the relationships you register. Parent records are always inserted before their children; deletions happen in reverse order for dependencies that have been explicitly registered with `registerRelationship`.
 * **Standard Record Registration**: Provides explicit methods for registering records to be processed during the commit phase: `registerNew` for insertions, `registerDirty` for updates, and `registerDeleted` for removals.
 * **Intelligent Dirty Record Merging**: If a record is registered as dirty multiple times within the same transaction, field values are merged and the most recent registration for each field takes precedence.
-* **Relationship Management**: The `registerRelationship` method links records that do not yet have IDs (e.g., a new `Contact` linked to a new `Account`). Foreign keys are resolved automatically at commit time once parent records have been inserted.
+* **Relationship Management**: The `registerRelationship` method links records that do not yet have IDs (e.g., a new `Contact` linked to a new `Account`). Foreign keys are resolved automatically at commit time once parent records have been inserted. This method is intentionally flexible and can also be used for simulated relationships, such as custom text fields that store another record's Id.
 * **Intra-SObject Relationship Support**: When records of the same `SObjectType` reference each other (e.g., `Account.ParentId`), the Unit of Work splits DML into dependency-ordered waves so parent records are always inserted first.
 * **Circular Relationship Support**: When two `SObjectType`s reference each other and only one relationship can be set at insert time, use `prioritiseRelationship( priorityField, secondaryField )` to declare which field can be deferred. The secondary relationship is applied as an update after both records have been inserted.
 * **Security and Permission Bypasses**: Offers granular, per-`SObjectType` control over sharing rules (`bypassSharing`) and CRUD/FLS permissions (`bypassPermissions`).
 * **Transactional Integrity**: Uses a Database Savepoint to ensure atomicity. Any DML failure during `commitWork` rolls back the entire transaction to its pre-commit state.
 * **Single-Use Enforcement**: Each `UnitOfWork` instance can only be committed once. Calling `commitWork` a second time throws a `ValidationException` immediately.
 * **Custom Exceptions**: A clear exception hierarchy: `ValidationException`, `CommitException`, and `RelationshipException` identifies exactly where a failure occurred and why.
+
+## Important Behaviour Notes
+
+* **Delete ordering is based on registered relationships**: The Unit of Work does not inspect org schema or infer dependency chains from describes during `commitWork`. If deletion order matters, register the relevant dependencies explicitly with `registerRelationship`.
+* **Simulated relationships are supported**: `registerRelationship` does not require the field to be a native Salesforce lookup. This allows patterns such as text fields that store record Ids to participate in the dependency graph.
+* **Dirty-then-delete is allowed**: A record may be registered as dirty and then deleted in the same Unit of Work. In that case the update is applied before the delete, which can be useful when business rules require a record to be moved into a deletable state first.
+* **Intra-SObject dependency waves assume one same-type parent per registered field path**: Hierarchies such as parent/child/grandchild work correctly, but more complex cases where one record depends on multiple records of the same `SObjectType` through different fields are not currently supported.
 
 ## Usage Examples
 
@@ -50,7 +57,7 @@ uow.commitWork(); // Single update DML with both Name and Industry set
 ```
 
 ### 3. Deleting Records
-Records can be marked for deletion. The Unit of Work automatically processes deletions in reverse dependency order.
+Records can be marked for deletion. The Unit of Work automatically processes deletions.
 
 ```apex
 UnitOfWork uow = new UnitOfWork();
@@ -61,7 +68,7 @@ Account accountToDelete = new Account( Id = '001xx0000000001AAA' );
 uow.registerDeleted( accountToDelete );
 uow.registerDeleted( contactToDelete );
 
-uow.commitWork(); // Contacts deleted before Accounts with the order derived automatically
+uow.commitWork();
 ```
 
 ### 4. Intra-SObject Hierarchies
@@ -143,6 +150,7 @@ uow.commitWork();
 * Intra-SObject relationships (e.g. `Account.ParentId`) split inserts into waves so parents precede children.
 * A circular inter-type dependency without a `prioritiseRelationship` call throws a `CommitException` wrapping a `RelationshipException`.
 * A circular intra-type dependency (e.g. Account A → Account B → Account A via `ParentId`) throws a `CommitException` wrapping a `RelationshipException`.
+* Linear same-type hierarchies such as grandparent → parent → child are supported by the intra-type wave logic.
 
 **Circular Relationships**:
 * `prioritiseRelationship` correctly defers the secondary field to a post-insert update for two new records.
@@ -152,3 +160,8 @@ uow.commitWork();
 * `bypassSharing` and `bypassPermissions` reject null inputs.
 * DML for a bypassed type executes in system mode regardless of the running user's permissions.
 * Permission failures for non-bypassed types trigger a rollback and a `CommitException`.
+
+**Documentation Notes / Intended Contracts**:
+* `registerRelationship` may be used with simulated relationships such as text fields storing record Ids.
+* Delete ordering is only guaranteed for dependencies represented by registered relationships.
+* Registering the same record as dirty and deleted in one Unit of Work is supported and results in update-then-delete behavior.
