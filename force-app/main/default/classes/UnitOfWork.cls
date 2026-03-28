@@ -51,6 +51,8 @@ public with sharing class UnitOfWork
 
     // Registers a list of new records so that the unit of work will insert them on commit.
     public void registerNew( List<SObject> records ) {
+        validate( records != null, 'registerNew called with a null records list' );
+        validate( !records.isEmpty(), 'registerNew called with an empty records list' );
         for ( SObject thisRecord : records ) {
             registerNew( thisRecord );
         }
@@ -67,6 +69,8 @@ public with sharing class UnitOfWork
 
     // Registers a list of existing records as dirty so that the unit of work will update them on commit.
     public void registerDirty( List<SObject> records ) {
+        validate( records != null, 'registerDirty called with a null records list' );
+        validate( !records.isEmpty(), 'registerDirty called with an empty records list' );
         for ( SObject thisRecord : records ) {
             registerDirty( thisRecord );
         }
@@ -83,6 +87,8 @@ public with sharing class UnitOfWork
 
     // Registers a list of records as deleted so that the unit of work will delete them on commit.
     public void registerDeleted( List<SObject> records ) {
+        validate( records != null, 'registerDeleted called with a null records list' );
+        validate( !records.isEmpty(), 'registerDeleted called with an empty records list' );
         for ( SObject thisRecord : records ) {
             registerDeleted( thisRecord );
         }
