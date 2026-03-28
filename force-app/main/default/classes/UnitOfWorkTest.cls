@@ -204,6 +204,54 @@ private class UnitOfWorkTest {
     }
 
     @isTest
+    private static void registerNew_whenCalledWithListOfRecords_registersAllRecords() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        Account accountA = new Account( Name = 'Account A' );
+        Account accountB = new Account( Name = 'Account B' );
+
+        Test.startTest();
+        unitOfWork.registerNew( new List<SObject>{ accountA, accountB } );
+        Test.stopTest();
+
+        List<SObject> registeredAccounts = unitOfWork.newRecordsBySobjectType.get( Account.SObjectType );
+        Assert.areEqual( 2, registeredAccounts.size(), 'registerNew, when called with a list of records, should register all records' );
+        Assert.isTrue( registeredAccounts.contains( accountA ), 'registerNew, when called with a list of records, should register the first record' );
+        Assert.isTrue( registeredAccounts.contains( accountB ), 'registerNew, when called with a list of records, should register the second record' );
+    }
+
+    @isTest
+    private static void registerDirty_whenCalledWithListOfRecords_registersAllRecords() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        Account accountA = new Account( Id = '001000000000001', Name = 'Account A' );
+        Account accountB = new Account( Id = '001000000000002', Name = 'Account B' );
+
+        Test.startTest();
+        unitOfWork.registerDirty( new List<SObject>{ accountA, accountB } );
+        Test.stopTest();
+
+        Map<Id, SObject> registeredAccounts = unitOfWork.dirtyRecordsBySobjectTypeAndRecordId.get( Account.SObjectType );
+        Assert.areEqual( 2, registeredAccounts.size(), 'registerDirty, when called with a list of records, should register all records' );
+        Assert.areEqual( accountA, registeredAccounts.get( accountA.Id ), 'registerDirty, when called with a list of records, should register the first record' );
+        Assert.areEqual( accountB, registeredAccounts.get( accountB.Id ), 'registerDirty, when called with a list of records, should register the second record' );
+    }
+
+    @isTest
+    private static void registerDeleted_whenCalledWithListOfRecords_registersAllRecords() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        Account accountA = new Account( Id = '001000000000001', Name = 'Account A' );
+        Account accountB = new Account( Id = '001000000000002', Name = 'Account B' );
+
+        Test.startTest();
+        unitOfWork.registerDeleted( new List<SObject>{ accountA, accountB } );
+        Test.stopTest();
+
+        Set<Id> registeredAccountIds = unitOfWork.deletedRecordIdsBySobjectType.get( Account.SObjectType );
+        Assert.areEqual( 2, registeredAccountIds.size(), 'registerDeleted, when called with a list of records, should register all records' );
+        Assert.isTrue( registeredAccountIds.contains( accountA.Id ), 'registerDeleted, when called with a list of records, should register the first record' );
+        Assert.isTrue( registeredAccountIds.contains( accountB.Id ), 'registerDeleted, when called with a list of records, should register the second record' );
+    }
+
+    @isTest
     private static void registerRelationship_whenCalledWithNullRecord_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         SObject nullRecord;

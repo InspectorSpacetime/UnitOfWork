@@ -49,6 +49,13 @@ public with sharing class UnitOfWork
         newRecord( record );
     }
 
+    // Registers a list of new records so that the unit of work will insert them on commit.
+    public void registerNew( List<SObject> records ) {
+        for ( SObject thisRecord : records ) {
+            registerNew( thisRecord );
+        }
+    }
+
     // Registers an existing record as dirty so that the unit of work will update it on commit.
     // If the record has already been registered as dirty, the records are merged with field values on this copy taking precedence.
     public void registerDirty( SObject record ) {
@@ -58,6 +65,13 @@ public with sharing class UnitOfWork
         dirtyRecord( record );
     }
 
+    // Registers a list of existing records as dirty so that the unit of work will update them on commit.
+    public void registerDirty( List<SObject> records ) {
+        for ( SObject thisRecord : records ) {
+            registerDirty( thisRecord );
+        }
+    }
+
     // Registers a record as deleted so that the unit of work will delete it on commit.
     public void registerDeleted( SObject record ) {
         validate( record != null, 'registerDeleted called with a null record' );
@@ -65,6 +79,13 @@ public with sharing class UnitOfWork
         validate( !isParentOfAnyRelationship( record ), 'registerDeleted called with a record that is the parent of a registered relationship' );
 
         deletedRecord( record );
+    }
+
+    // Registers a list of records as deleted so that the unit of work will delete them on commit.
+    public void registerDeleted( List<SObject> records ) {
+        for ( SObject thisRecord : records ) {
+            registerDeleted( thisRecord );
+        }
     }
 
     // Registers a relationship between a record and a parent record so that the unit of work can set the relationship field during commit.
