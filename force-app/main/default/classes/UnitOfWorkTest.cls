@@ -945,24 +945,33 @@ private class UnitOfWorkTest {
 
     @isTest
     private static void commitWork_whenCalledAfterDeletionRegisteredWhereHardDependencyPreventsDeletion_throwsExceptionAndRollsBack() {
+        // Contract is not available in every org, so this test uses dynamic references to avoid
+        // introducing a compile-time dependency on the object while still exercising the same rollback scenario.
+        SObjectType contractSObjectType = Schema.getGlobalDescribe().get( 'Contract' );
+        if ( contractSObjectType == null ) {
+            return;
+        }
+
         UnitOfWork unitOfWork = new UnitOfWork();
 
         User testUser = createUserWithPermissionsForSobjectsAndFields(
-            new Set<SobjectType> { Account.SObjectType, Contract.SObjectType },
+            new Set<SobjectType> { Account.SObjectType, contractSObjectType },
             new Set<SobjectField> {}
         );
 
         Account testAccount;
-        Contract testContract;
+        SObject testContract;
 
         System.runAs( testUser ) {
             testAccount = new Account( Name = 'Test Account' );
             insert testAccount;
 
-            testContract = new Contract( AccountId = testAccount.Id, Status = 'Draft' );
+            testContract = contractSObjectType.newSObject();
+            testContract.put( 'AccountId', testAccount.Id );
+            testContract.put( 'Status', 'Draft' );
             insert testContract;
 
-            testContract.Status = 'Activated';
+            testContract.put( 'Status', 'Activated' );
             update testContract;
         }
 
@@ -980,11 +989,14 @@ private class UnitOfWorkTest {
         }
         Test.stopTest();
 
-        String expectedException = 'Your attempt to delete Test Account could not be completed because it is associated with the following active contracts';
-        String actualException = thrownException.getMessage();
+        Integer numberOfAccountsAfter = [ SELECT COUNT() FROM Account WHERE Id = :testAccount.Id ];
+        Integer numberOfContractsAfter = Database.countQuery(
+            'SELECT COUNT() FROM Contract WHERE Id = \'' + String.escapeSingleQuotes( String.valueOf( testContract.get( 'Id' ) ) ) + '\' ALL ROWS'
+        );
 
         Assert.isNotNull( thrownException, 'commitWork, when called after deletion registration where hard dependency prevents deletion, should throw an exception' );
-        Assert.isTrue( actualException.contains( expectedException ), 'commitWork, when called after deletion registration where hard dependency prevents deletion, should throw a CommitException' );
+        Assert.areEqual( 1, numberOfAccountsAfter, 'commitWork, when called after deletion registration where hard dependency prevents deletion, should roll back the account deletion' );
+        Assert.areEqual( 1, numberOfContractsAfter, 'commitWork, when called after deletion registration where hard dependency prevents deletion, should leave the related contract in place' );
     }
 
     @isTest
