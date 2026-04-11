@@ -23,12 +23,24 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-@isTest
+@IsTest
+@SuppressWarnings('PMD.MethodNamingConventions,PMD.CyclomaticComplexity,PMD.NcssCount,PMD.ApexUnitTestClassShouldHaveRunAs')
+// The use of underscores to separate method name, scenario and outcome is deliberate
+// This is a self-contained library test class so cyclomatic complexity and class length are not a concern
+// Tests that test security do use runAs but some tests are for parameter validation
+// CPD-OFF Apex tests methods often have similar structure to maintain readability
+/**
+ * @description Test class for the UnitOfWork class.
+ * @author Jai Jordan
+ * @date 2026-04-11
+ * @version 1.0.2
+ */
 private class UnitOfWorkTest {
 
-    private static final Id minimumAccessProfileId = [ SELECT Id FROM Profile WHERE Name = 'Minimum Access - Salesforce' LIMIT 1 ].Id;
+    private static final Id MINIMUM_ACCESS_PROFILE_ID = [ SELECT Id FROM Profile WHERE Name = 'Minimum Access - Salesforce' LIMIT 1 ].Id;
+    private static Integer idsGenerated = 0;
 
-    @isTest
+    @IsTest
     private static void registerNew_whenCalledWithNullRecord_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Sobject nullRecord;
@@ -48,10 +60,10 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerNew called with a null record', thrownException.getMessage(), 'registerNew, when called with a null record, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerNew_whenCalledWithRecordWithId_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
-        Account accountWithId = new Account( Id = '001000000000000', Name = 'Account with Id' );
+        Account accountWithId = new Account( Id = generateId( Account.SObjectType ), Name = 'Account with Id' );
 
         UnitOfWork.ValidationException thrownException;
 
@@ -68,7 +80,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerNew called with a record that already has an Id', thrownException.getMessage(), 'registerNew, when called with a record with an Id, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerNew_whenCalledWithRecordInSobjectTypeOperationOrder_registersRecord() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Account testAccount = new Account( Name = 'Test Account' );
@@ -80,7 +92,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( testAccount, unitOfWork.newRecordsBySobjectType.get( Account.SObjectType )[0], 'registerNew, when called with a record in the sobjectTypeOperationOrder, should register the record' );
     }
 
-    @isTest
+    @IsTest
     private static void registerDirty_whenCalledWithNullRecord_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         SObject nullRecord;
@@ -100,7 +112,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerDirty called with a null record', thrownException.getMessage(), 'registerDirty, when called with a null record, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerDirty_whenCalledWithRecordWithNullId_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Account accountWithNullId = new Account( Name = 'Account with Null Id' );
@@ -120,10 +132,10 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerDirty called with a record that does not have an Id', thrownException.getMessage(), 'registerDirty, when called with a record with a null Id, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerDirty_whenCalledWithRecordInSobjectTypeOperationOrder_registersRecord() {
         UnitOfWork unitOfWork = new UnitOfWork();
-        Account testAccount = new Account( Id = '001000000000000', Name = 'Test Account' );
+        Account testAccount = new Account( Id = generateId( Account.SObjectType ), Name = 'Test Account' );
 
         Test.startTest();
         unitOfWork.registerDirty( testAccount );
@@ -132,10 +144,10 @@ private class UnitOfWorkTest {
         Assert.areEqual( testAccount, unitOfWork.dirtyRecordsBySobjectTypeAndRecordId.get( Account.SObjectType ).get( testAccount.Id ), 'registerDirty, when called with a record in the sobjectTypeOperationOrder, should register the record' );
     }
 
-    @isTest
+    @IsTest
     private static void registerDirty_whenCalledTwiceWithSameRecord_mergesRecords() {
         UnitOfWork unitOfWork = new UnitOfWork();
-        Id accountId = '001000000000000';
+        Id accountId = generateId( Account.SObjectType );
 
         Account originalVersionOfAccount = new Account( Id = accountId, Name = 'Test Account', Phone = '1234567890' );
         Account secondVersionOfAccount = new Account( Id = accountId, Description = 'Test description', Phone = null );
@@ -151,7 +163,7 @@ private class UnitOfWorkTest {
         Assert.isNull( mergedAccount.Phone, 'registerDirty, when called twice with the same record, should merge the records' );
     }
 
-    @isTest
+    @IsTest
     private static void registerDeleted_whenCalledWithNullRecord_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         SObject nullRecord;
@@ -171,7 +183,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerDeleted called with a null record', thrownException.getMessage(), 'registerDeleted, when called with a null record, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerDeleted_whenCalledWithRecordWithNullId_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Account accountWithNullId = new Account( Name = 'Account with Null Id' );
@@ -191,10 +203,10 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerDeleted called with a record that does not have an Id', thrownException.getMessage(), 'registerDeleted, when called with a record with a null Id, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerDeleted_whenCalledWithRecordInSobjectTypeOperationOrder_registersRecord() {
         UnitOfWork unitOfWork = new UnitOfWork();
-        Account testAccount = new Account( Id = '001000000000000', Name = 'Test Account' );
+        Account testAccount = new Account( Id = generateId( Account.SObjectType ), Name = 'Test Account' );
 
         Test.startTest();
         unitOfWork.registerDeleted( testAccount );
@@ -203,7 +215,7 @@ private class UnitOfWorkTest {
         Assert.isTrue( unitOfWork.deletedRecordIdsBySobjectType.get( Account.SObjectType ).contains( testAccount.Id ), 'registerDeleted, when called with a record in the sobjectTypeOperationOrder, should register the record' );
     }
 
-    @isTest
+    @IsTest
     private static void registerPermanentlyDeleted_whenCalledWithNullRecord_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         SObject nullRecord;
@@ -223,7 +235,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerPermanentlyDeleted called with a null record', thrownException.getMessage(), 'registerPermanentlyDeleted, when called with a null record, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerPermanentlyDeleted_whenCalledWithRecordWithNullId_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Account accountWithNullId = new Account( Name = 'Account with Null Id' );
@@ -243,10 +255,10 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerPermanentlyDeleted called with a record that does not have an Id', thrownException.getMessage(), 'registerPermanentlyDeleted, when called with a record with a null Id, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerPermanentlyDeleted_whenCalledWithRecordInSobjectTypeOperationOrder_registersRecord() {
         UnitOfWork unitOfWork = new UnitOfWork();
-        Account testAccount = new Account( Id = '001000000000000', Name = 'Test Account' );
+        Account testAccount = new Account( Id = generateId( Account.SObjectType ), Name = 'Test Account' );
 
         Test.startTest();
         unitOfWork.registerPermanentlyDeleted( testAccount );
@@ -255,7 +267,7 @@ private class UnitOfWorkTest {
         Assert.isTrue( unitOfWork.permanentlyDeletedRecordIdsBySobjectType.get( Account.SObjectType ).contains( testAccount.Id ), 'registerPermanentlyDeleted, when called with a record in the sobjectTypeOperationOrder, should register the record' );
     }
 
-    @isTest
+    @IsTest
     private static void registerNew_whenCalledWithListOfRecords_registersAllRecords() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Account accountA = new Account( Name = 'Account A' );
@@ -271,7 +283,7 @@ private class UnitOfWorkTest {
         Assert.isTrue( registeredAccounts.contains( accountB ), 'registerNew, when called with a list of records, should register the second record' );
     }
 
-    @isTest
+    @IsTest
     private static void registerNew_whenCalledWithNullList_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         List<SObject> nullRecords;
@@ -291,7 +303,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerNew called with a null records list', thrownException.getMessage(), 'registerNew, when called with a null records list, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerNew_whenCalledWithEmptyList_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
 
@@ -310,12 +322,12 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerNew called with an empty records list', thrownException.getMessage(), 'registerNew, when called with an empty records list, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerDirty_whenCalledWithListOfRecords_registersAllRecords() {
         UnitOfWork unitOfWork = new UnitOfWork();
-        Account accountA = new Account( Id = '001000000000001', Name = 'Account A' );
-        Account accountB = new Account( Id = '001000000000002', Name = 'Account B' );
-
+        Account accountA = new Account( Id = generateId( Account.SObjectType ), Name = 'Account A' );
+        Account accountB = new Account( Id = generateId( Account.SObjectType ), Name = 'Account B' );
+ 
         Test.startTest();
         unitOfWork.registerDirty( new List<SObject>{ accountA, accountB } );
         Test.stopTest();
@@ -326,7 +338,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( accountB, registeredAccounts.get( accountB.Id ), 'registerDirty, when called with a list of records, should register the second record' );
     }
 
-    @isTest
+    @IsTest
     private static void registerDirty_whenCalledWithNullList_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         List<SObject> nullRecords;
@@ -346,7 +358,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerDirty called with a null records list', thrownException.getMessage(), 'registerDirty, when called with a null records list, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerDirty_whenCalledWithEmptyList_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
 
@@ -365,11 +377,11 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerDirty called with an empty records list', thrownException.getMessage(), 'registerDirty, when called with an empty records list, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerDeleted_whenCalledWithListOfRecords_registersAllRecords() {
         UnitOfWork unitOfWork = new UnitOfWork();
-        Account accountA = new Account( Id = '001000000000001', Name = 'Account A' );
-        Account accountB = new Account( Id = '001000000000002', Name = 'Account B' );
+        Account accountA = new Account( Id = generateId( Account.SObjectType ), Name = 'Account A' );
+        Account accountB = new Account( Id = generateId( Account.SObjectType ), Name = 'Account B' );
 
         Test.startTest();
         unitOfWork.registerDeleted( new List<SObject>{ accountA, accountB } );
@@ -381,7 +393,7 @@ private class UnitOfWorkTest {
         Assert.isTrue( registeredAccountIds.contains( accountB.Id ), 'registerDeleted, when called with a list of records, should register the second record' );
     }
 
-    @isTest
+    @IsTest
     private static void registerDeleted_whenCalledWithNullList_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         List<SObject> nullRecords;
@@ -401,7 +413,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerDeleted called with a null records list', thrownException.getMessage(), 'registerDeleted, when called with a null records list, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerDeleted_whenCalledWithEmptyList_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
 
@@ -420,11 +432,11 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerDeleted called with an empty records list', thrownException.getMessage(), 'registerDeleted, when called with an empty records list, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerPermanentlyDeleted_whenCalledWithListOfRecords_registersAllRecords() {
         UnitOfWork unitOfWork = new UnitOfWork();
-        Account accountA = new Account( Id = '001000000000001', Name = 'Account A' );
-        Account accountB = new Account( Id = '001000000000002', Name = 'Account B' );
+        Account accountA = new Account( Id = generateId( Account.SObjectType ), Name = 'Account A' );
+        Account accountB = new Account( Id = generateId( Account.SObjectType ), Name = 'Account B' );
 
         Test.startTest();
         unitOfWork.registerPermanentlyDeleted( new List<SObject>{ accountA, accountB } );
@@ -436,7 +448,7 @@ private class UnitOfWorkTest {
         Assert.isTrue( registeredAccountIds.contains( accountB.Id ), 'registerPermanentlyDeleted, when called with a list of records, should register the second record' );
     }
 
-    @isTest
+    @IsTest
     private static void registerPermanentlyDeleted_whenCalledWithNullList_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         List<SObject> nullRecords;
@@ -456,7 +468,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerPermanentlyDeleted called with a null records list', thrownException.getMessage(), 'registerPermanentlyDeleted, when called with a null records list, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerPermanentlyDeleted_whenCalledWithEmptyList_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
 
@@ -475,7 +487,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerPermanentlyDeleted called with an empty records list', thrownException.getMessage(), 'registerPermanentlyDeleted, when called with an empty records list, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerRelationship_whenCalledWithNullRecord_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         SObject nullRecord;
@@ -497,7 +509,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerRelationship called with a null record', thrownException.getMessage(), 'registerRelationship, when called with a null record, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerRelationship_whenCalledWithNullRelationshipField_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
@@ -519,7 +531,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerRelationship called with a null relationshipField', thrownException.getMessage(), 'registerRelationship, when called with a null relationshipField, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerRelationship_whenCalledWithNullParentRecord_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
@@ -541,7 +553,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerRelationship called with a null parentRecord', thrownException.getMessage(), 'registerRelationship, when called with a null parentRecord, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerRelationship_whenCalledWithRelationshipFieldNotOnRecordSobjectType_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Account testAccount = new Account( Name = 'Test Account' ); // Record is Account, not Contact
@@ -563,7 +575,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerRelationship called with a relationship field from a different SobjectType than the record SobjectType', thrownException.getMessage(), 'registerRelationship, when called with a relationship field not on the record SObjectType, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerRelationship_whenCalledWithValidParameters_registersRelationship() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
@@ -578,7 +590,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 1, unitOfWork.relationships.relationshipsBySobjectType.get( Contact.SObjectType ).size(), 'registerRelationship, when called with valid parameters, should register one relationship' );
     }
 
-    @isTest
+    @IsTest
     private static void registerRelationship_whenSameFieldRegisteredTwiceForSameRecord_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
@@ -602,11 +614,11 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerRelationship called with a relationship field that has already been registered for this record', thrownException.getMessage(), 'registerRelationship, when the same field is registered twice for the same record, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerRelationship_whenParentRecordAlreadyRegisteredForDeletion_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
-        Account parentAccount = new Account( Id = '001000000000000', Name = 'Parent Account' );
+        Account parentAccount = new Account( Id = generateId( Account.SObjectType ), Name = 'Parent Account' );
 
         unitOfWork.registerDeleted( parentAccount );
 
@@ -625,11 +637,11 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerRelationship called with a parent record that has been registered for deletion', thrownException.getMessage(), 'registerRelationship, when the parent record has been registered for deletion, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerRelationship_whenParentRecordAlreadyRegisteredForPermanentDeletion_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
-        Account parentAccount = new Account( Id = '001000000000000', Name = 'Parent Account' );
+        Account parentAccount = new Account( Id = generateId( Account.SObjectType ), Name = 'Parent Account' );
 
         unitOfWork.registerPermanentlyDeleted( parentAccount );
 
@@ -648,11 +660,11 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerRelationship called with a parent record that has been registered for deletion', thrownException.getMessage(), 'registerRelationship, when the parent record has been registered for permanent deletion, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerDeleted_whenRecordIsParentOfRegisteredRelationship_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
-        Account parentAccount = new Account( Id = '001000000000000', Name = 'Parent Account' );
+        Account parentAccount = new Account( Id = generateId( Account.SObjectType ), Name = 'Parent Account' );
 
         unitOfWork.registerRelationship( testContact, Contact.AccountId, parentAccount );
 
@@ -671,11 +683,11 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerDeleted called with a record that is the parent of a registered relationship', thrownException.getMessage(), 'registerDeleted, when the record is the parent of a registered relationship, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void registerPermanentlyDeleted_whenRecordIsParentOfRegisteredRelationship_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
-        Account parentAccount = new Account( Id = '001000000000000', Name = 'Parent Account' );
+        Account parentAccount = new Account( Id = generateId( Account.SObjectType ), Name = 'Parent Account' );
 
         unitOfWork.registerRelationship( testContact, Contact.AccountId, parentAccount );
 
@@ -694,7 +706,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'registerPermanentlyDeleted called with a record that is the parent of a registered relationship', thrownException.getMessage(), 'registerPermanentlyDeleted, when the record is the parent of a registered relationship, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void bypassSharing_whenCalledWithNullSobjectType_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         SObjectType nullSobjectType;
@@ -714,7 +726,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'bypassSharing called with a null type', thrownException.getMessage(), 'bypassSharing, when called with a null type, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void bypassSharing_whenCalledWithValidSobjectType_registersSharingBypass() {
         UnitOfWork unitOfWork = new UnitOfWork();
         SobjectType sobjectTypeToBypassSharing = Account.SObjectType;
@@ -726,7 +738,7 @@ private class UnitOfWorkTest {
         Assert.isTrue( unitOfWork.sobjectTypesToBypassSharing.contains( Account.SObjectType ), 'bypassSharing, when called with a valid SobjectType, should register the sharing bypass' );
     }
 
-    @isTest
+    @IsTest
     private static void bypassPermissions_whenCalledWithNullSobjectType_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         SObjectType nullSobjectType;
@@ -746,7 +758,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'bypassPermissions called with a null type', thrownException.getMessage(), 'bypassPermissions, when called with a null type, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void bypassPermissions_whenCalledWithValidSobjectType_registersPermissionsBypass() {
         UnitOfWork unitOfWork = new UnitOfWork();
             SobjectType sobjectTypeToBypassPermissions = Account.SObjectType;
@@ -758,7 +770,7 @@ private class UnitOfWorkTest {
         Assert.isTrue( unitOfWork.sobjectTypesToBypassPermissions.contains( Account.SObjectType ), 'bypassPermissions, when called with a valid SobjectType, should register the permissions bypass' );
     }
 
-    @isTest
+    @IsTest
     private static void prioritiseRelationship_whenCalledWithNullPriorityField_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         SObjectField nullField;
@@ -778,7 +790,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'prioritiseRelationship called with a null priorityField', thrownException.getMessage(), 'prioritiseRelationship, when called with a null priorityField, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void prioritiseRelationship_whenCalledWithNullSecondaryField_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         SObjectField nullField;
@@ -798,7 +810,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'prioritiseRelationship called with a null secondaryField', thrownException.getMessage(), 'prioritiseRelationship, when called with a null secondaryField, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void commitWork_whenCalledWithNoRegistrations_issuesNoDmlStatements() {
         UnitOfWork unitOfWork = new UnitOfWork();
 
@@ -813,7 +825,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( dmlStatementsIssuedBefore, dmlStatementsIssuedAfter, 'commitWork, when called with no registrations, should issue no Dml statements' );
     }
 
-    @isTest
+    @IsTest
     private static void commitWork_whenCalledTwice_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         unitOfWork.commitWork();
@@ -833,7 +845,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'commitWork has already been called on this UnitOfWork instance', thrownException.getMessage(), 'commitWork, when called twice, should throw a ValidationException' );
     }
 
-    @isTest
+    @IsTest
     private static void commitWork_whenInterTypeCircularRelationshipsRegisteredWithoutPrioritise_throwsCommitException() {
         UnitOfWork unitOfWork = new UnitOfWork();
 
@@ -864,7 +876,7 @@ private class UnitOfWorkTest {
         Assert.isTrue( thrownException.getMessage().contains( 'Circular relationship detected between SObject types' ), 'commitWork, when inter-type circular relationships are registered without prioritiseRelationship, should throw a CommitException with a useful message' );
     }
 
-    @isTest
+    @IsTest
     private static void commitWork_whenIntraSobjectCircularRelationshipRegistered_throwsCommitException() {
         UnitOfWork unitOfWork = new UnitOfWork();
 
@@ -893,7 +905,7 @@ private class UnitOfWorkTest {
         Assert.isTrue( thrownException.getMessage().contains( 'Circular intra-type relationship detected' ), 'commitWork, when an intra-SObject circular relationship is registered, should throw a CommitException with a useful message' );
     }
 
-    @isTest
+    @IsTest
     private static void commitWork_whenCalledAfterRelationshipRegistration_createsRecords() {
         UnitOfWork unitOfWork = new UnitOfWork();
 
@@ -943,7 +955,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( dmlRowsIssuedBefore + 4, dmlRowsIssuedAfter, 'commitWork, when called with an after relationship registration, should issue only 4 DML rows' );
     }
 
-    @isTest
+    @IsTest
     private static void commitWork_whenCalledAfterDeletionRegisteredWhereHardDependencyPreventsDeletion_throwsExceptionAndRollsBack() {
         // Contract is not available in every org, so this test uses dynamic references to avoid
         // introducing a compile-time dependency on the object while still exercising the same rollback scenario.
@@ -999,7 +1011,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 1, numberOfContractsAfter, 'commitWork, when called after deletion registration where hard dependency prevents deletion, should leave the related contract in place' );
     }
 
-    @isTest
+    @IsTest
     private static void commitWork_whenInsertingRecordTheUserHasPermissionForAndThenOneItDoesntHavePermissionsFor_throwsExceptionAndRollsBack() {
         UnitOfWork unitOfWork = new UnitOfWork();
 
@@ -1038,7 +1050,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( numberOfContactsBefore, numberOfContactsAfter, 'commitWork, when inserting a record the user has permission for and then one it doesn\'t have permissions for, should roll back the transaction' );
     }
 
-    @isTest
+    @IsTest
     private static void commitWork_whenUpdatingRecordTheUserHasPermissionForAndThenOneItDoesNot_throwsExceptionAndRollsBack() {
         UnitOfWork unitOfWork = new UnitOfWork();
 
@@ -1080,7 +1092,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'Test Account', updatedTestAccount.Name, 'commitWork, when updating a record the user has permission for and then one it does not, should roll back the transaction' );
     }
 
-    @isTest
+    @IsTest
     private static void commitWork_whenDeletingRecordTheUserHasPermissionForAndThenOneItDoesNot_throwsExceptionAndRollsBack() {
         UnitOfWork unitOfWork = new UnitOfWork();
 
@@ -1122,7 +1134,7 @@ private class UnitOfWorkTest {
         Assert.isFalse( testContactsAfter.isEmpty(), 'commitWork, when deleting a record the user has permission for and then one it does not, should roll back the transaction - contact not deleted' );
     }
 
-    @isTest
+    @IsTest
     private static void commitWork_whenInsertingRecordTheUserHasPermissionForAndThenOneItDoesntHavePermissionsForButHasBypassPermission_commitsSuccessfully() {
         UnitOfWork unitOfWork = new UnitOfWork();
 
@@ -1147,7 +1159,7 @@ private class UnitOfWorkTest {
         Assert.isNotNull( testContact.Id, 'commitWork, when inserting a record the user has permission for and then one it doesn\'t have permissions for but has a bypass permission for, should commit successfully - contact' );
     }
 
-    @isTest
+    @IsTest
     private static void commitWork_whenUpdatingRecordTheUserHasPermissionForAndThenOneItDoesNotButHasBypassPermission_commitsSuccessfully() {
         UnitOfWork unitOfWork = new UnitOfWork();
 
@@ -1164,7 +1176,6 @@ private class UnitOfWorkTest {
         System.runAs( testUser ) {
             insert testAccount;
         }
-
 
         Test.startTest();
         System.runAs( testUser ) {
@@ -1186,7 +1197,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( 'Modified Test', updatedTestContact.FirstName, 'commitWork, when updating a record the user has permission for and then one it does not, should throw an exception' );
     }
 
-    @isTest
+    @IsTest
     private static void commitWork_whenDeletingRecordTheUserHasPermissionForAndThenOneItDoesNotButHasBypassPermission_commitsSuccessfully() {
         UnitOfWork unitOfWork = new UnitOfWork();
 
@@ -1221,7 +1232,7 @@ private class UnitOfWorkTest {
         Assert.isTrue( testContactsAfter.isEmpty(), 'commitWork, when deleting a record the user has permission for and then one it does not have permission for but has a bypass permission for, should commit successfully - contact deleted' );
     }
 
-    @isTest
+    @IsTest
     private static void commitWork_whenRecordIsRegisteredForPermanentDeletion_deletesAndCallsHardDeleteSuccessfully() {
         UnitOfWork unitOfWork = new UnitOfWork();
 
@@ -1246,7 +1257,7 @@ private class UnitOfWorkTest {
         Assert.isTrue( unitOfWork.successfullyPermanentlyDeletedRecordIds.contains( testAccount.Id ), 'commitWork, when a record is registered for permanent deletion, should record a successful hard delete result for that record' );
     }
 
-    @isTest
+    @IsTest
     private static void commitWork_whenIntraSobjectRelationshipRegistered_splitsDmlAndCommitsSuccessfully() {
         UnitOfWork uow = new UnitOfWork();
 
@@ -1314,7 +1325,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( parentAccount.Id, parentAccountContactAfter.AccountId, 'commitWork, when called with an intra-sobject relationship registration, should set the parent account relationship on the parent account contact' );
     }
 
-    @isTest
+    @IsTest
     private static void commitWork_whenCircularRelationshipsRegistered_splitsDmlAndCommitsSuccessfully() {
         UnitOfWork uow = new UnitOfWork();
 
@@ -1372,7 +1383,7 @@ private class UnitOfWorkTest {
         Assert.areEqual( testContact.Id, testAccountAfter.get( contactLookupOnAccount ), 'commitWork, when called with a circular relationship registration, should set the contact relationship on the account' );
     }
 
-    @isTest
+    @IsTest
     private static void commitWork_whenCircularRelationshipsRegisteredWithDirtyRecord_mergesFieldsAndCommitsSuccessfully() {
         // We can't ship a custom field for the UnitOfWork tests so we simulate one using the Site field on Account.
         SobjectField contactLookupOnAccount = Account.Site;
@@ -1422,7 +1433,7 @@ private class UnitOfWorkTest {
 
     private static User createMinimumAccessUser() {
         User minimumAccessUser = new User(
-            ProfileId = minimumAccessProfileId,
+            ProfileId = MINIMUM_ACCESS_PROFILE_ID,
             LastName = 'Test',
             Email = 'test@example.com',
             Username = 'test' + DateTime.now().getTime() + '@unit.of.work.test',
@@ -1481,5 +1492,10 @@ private class UnitOfWorkTest {
 
     private static void assignPermissionSetToUser( User user, PermissionSet permissionSet ) {
         insert new PermissionSetAssignment( AssigneeId = user.Id, PermissionSetId = permissionSet.Id );
+    }
+
+    private static Id generateId( SobjectType sobjectType ) {
+        idsGenerated++;
+        return sobjectType.getDescribe( SObjectDescribeOptions.DEFERRED ).getKeyPrefix() + idsGenerated.toString().leftPad( 15, '0' );
     }
 }

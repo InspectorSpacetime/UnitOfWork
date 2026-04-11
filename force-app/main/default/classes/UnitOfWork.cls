@@ -23,27 +23,35 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
+@SuppressWarnings('PMD.CognitiveComplexity,PMD.CyclomaticComplexity') // This is a self-contained library class so cognitive and cyclomatic complexity is not a concern
+/**
+ * A simple Unit of Work implementation in the Salesforce Apex programming language.
+ * @author Jai Jordan
+ * @date 2026-04-11
+ * @version 1.0.2
+ */
 public with sharing class UnitOfWork
 {
-    public abstract class UnitOfWorkException extends Exception {}
-    public class ValidationException extends UnitOfWorkException {}
-    public class CommitException extends UnitOfWorkException {}
-    public class RelationshipException extends UnitOfWorkException {}
+    @TestVisible private Map<SObjectType, List<SObject>> newRecordsBySobjectType = new Map<SObjectType, List<SObject>>();
+    @TestVisible private Map<SObjectType, Map<Id, SObject>> dirtyRecordsBySobjectTypeAndRecordId = new Map<SObjectType, Map<Id, SObject>>();
+    @TestVisible private Map<SObjectType, Set<Id>> deletedRecordIdsBySobjectType = new Map<SObjectType, Set<Id>>();
+    @TestVisible private Map<SObjectType, Set<Id>> permanentlyDeletedRecordIdsBySobjectType = new Map<SObjectType, Set<Id>>();
+    @TestVisible private Set<Id> successfullyPermanentlyDeletedRecordIds = new Set<Id>();
+    @TestVisible private Relationships relationships = new Relationships();
+    @TestVisible private Set<SobjectType> sobjectTypesToBypassSharing = new Set<SobjectType>();
+    @TestVisible private Set<SobjectType> sobjectTypesToBypassPermissions = new Set<SobjectType>();
+    @TestVisible private Set<SObjectField> secondaryFields = new Set<SObjectField>();
+    @TestVisible private Boolean committed = false;
 
-    @testVisible private Map<SObjectType, List<SObject>> newRecordsBySobjectType = new Map<SObjectType, List<SObject>>();
-    @testVisible private Map<SObjectType, Map<Id, SObject>> dirtyRecordsBySobjectTypeAndRecordId = new Map<SObjectType, Map<Id, SObject>>();
-    @testVisible private Map<SObjectType, Set<Id>> deletedRecordIdsBySobjectType = new Map<SObjectType, Set<Id>>();
-    @testVisible private Map<SObjectType, Set<Id>> permanentlyDeletedRecordIdsBySobjectType = new Map<SObjectType, Set<Id>>();
-    @testVisible private Set<Id> successfullyPermanentlyDeletedRecordIds = new Set<Id>();
-    @testVisible private Relationships relationships = new Relationships();
-    @testVisible private Set<SobjectType> sobjectTypesToBypassSharing = new Set<SobjectType>();
-    @testVisible private Set<SobjectType> sobjectTypesToBypassPermissions = new Set<SobjectType>();
-    @testVisible private Set<SObjectField> secondaryFields = new Set<SObjectField>();
-    @testVisible private Boolean committed = false;
+    public abstract class UnitOfWorkException extends Exception {} // NOPMD: Custom exception type used by the Unit of Work class.
+    public class ValidationException extends UnitOfWorkException {} // NOPMD: Exception for when a method is called with invalid parameter values.
+    public class CommitException extends UnitOfWorkException {} // NOPMD: Exception for when the commit method is called and an error occurs.
+    public class RelationshipException extends UnitOfWorkException {} // NOPMD: Exception for when a relationship is registered with an invalid relationship.
 
-    public UnitOfWork() {}
-
-    // Registers a new record so that the unit of work will insert it on commit.
+    /**
+     * Registers a new record so that the unit of work will insert it on commit.
+     * @param record The record to register.
+     */
     public void registerNew( SObject record ) {
         validate( record != null, 'registerNew called with a null record' );
         validate( record.Id == null, 'registerNew called with a record that already has an Id' );
@@ -51,7 +59,10 @@ public with sharing class UnitOfWork
         newRecord( record );
     }
 
-    // Registers a list of new records so that the unit of work will insert them on commit.
+    /**
+     * Registers a list of new records so that the unit of work will insert them on commit.
+     * @param records The list of records to register.
+     */
     public void registerNew( List<SObject> records ) {
         validate( records != null, 'registerNew called with a null records list' );
         validate( !records.isEmpty(), 'registerNew called with an empty records list' );
@@ -60,8 +71,11 @@ public with sharing class UnitOfWork
         }
     }
 
-    // Registers an existing record as dirty so that the unit of work will update it on commit.
-    // If the record has already been registered as dirty, the records are merged with field values on this copy taking precedence.
+    /**
+     * Registers an existing record as dirty so that the unit of work will update it on commit.
+     * If the record has already been registered as dirty, the records are merged with field values on this copy taking precedence.
+     * @param record The record to register.
+     */
     public void registerDirty( SObject record ) {
         validate( record != null, 'registerDirty called with a null record' );
         validate( record.Id != null, 'registerDirty called with a record that does not have an Id' );
@@ -69,7 +83,10 @@ public with sharing class UnitOfWork
         dirtyRecord( record );
     }
 
-    // Registers a list of existing records as dirty so that the unit of work will update them on commit.
+    /**
+     * Registers a list of existing records as dirty so that the unit of work will update them on commit.
+     * @param records The list of records to register.
+     */
     public void registerDirty( List<SObject> records ) {
         validate( records != null, 'registerDirty called with a null records list' );
         validate( !records.isEmpty(), 'registerDirty called with an empty records list' );
@@ -78,7 +95,10 @@ public with sharing class UnitOfWork
         }
     }
 
-    // Registers a record as deleted so that the unit of work will delete it on commit.
+    /**
+     * Registers a record as deleted so that the unit of work will delete it on commit.
+     * @param record The record to register.
+     */
     public void registerDeleted( SObject record ) {
         validate( record != null, 'registerDeleted called with a null record' );
         validate( record.Id != null, 'registerDeleted called with a record that does not have an Id' );
@@ -87,7 +107,10 @@ public with sharing class UnitOfWork
         deletedRecord( record );
     }
 
-    // Registers a list of records as deleted so that the unit of work will delete them on commit.
+    /**
+     * Registers a list of records as deleted so that the unit of work will delete them on commit.
+     * @param records The list of records to register.
+     */
     public void registerDeleted( List<SObject> records ) {
         validate( records != null, 'registerDeleted called with a null records list' );
         validate( !records.isEmpty(), 'registerDeleted called with an empty records list' );
@@ -96,7 +119,10 @@ public with sharing class UnitOfWork
         }
     }
 
-    // Registers a record as permanently deleted so that the unit of work will delete it and then empty it from the recycle bin on commit.
+    /**
+     * Registers a record as permanently deleted so that the unit of work will delete it and then empty it from the recycle bin on commit.
+     * @param record The record to register.
+     */
     public void registerPermanentlyDeleted( SObject record ) {
         validate( record != null, 'registerPermanentlyDeleted called with a null record' );
         validate( record.Id != null, 'registerPermanentlyDeleted called with a record that does not have an Id' );
@@ -105,7 +131,10 @@ public with sharing class UnitOfWork
         permanentlyDeletedRecord( record );
     }
 
-    // Registers a list of records as permanently deleted so that the unit of work will delete them and then empty them from the recycle bin on commit.
+    /**
+     * Registers a list of records as permanently deleted so that the unit of work will delete them and then empty them from the recycle bin on commit.
+     * @param records The list of records to register.
+     */
     public void registerPermanentlyDeleted( List<SObject> records ) {
         validate( records != null, 'registerPermanentlyDeleted called with a null records list' );
         validate( !records.isEmpty(), 'registerPermanentlyDeleted called with an empty records list' );
@@ -114,7 +143,12 @@ public with sharing class UnitOfWork
         }
     }
 
-    // Registers a relationship between a record and a parent record so that the unit of work can set the relationship field during commit.
+    /**
+     * Registers a relationship between a record and a parent record so that the unit of work can set the relationship field during commit.
+     * @param record The record to register.
+     * @param relationshipField The relationship field.
+     * @param parentRecord The parent record.
+     */
     public void registerRelationship( SObject record, SObjectField relationshipField, SObject parentRecord ) {
         validate( record != null, 'registerRelationship called with a null record' );
         validate( relationshipField != null, 'registerRelationship called with a null relationshipField' );
@@ -130,8 +164,12 @@ public with sharing class UnitOfWork
         relationships.addRelationship( record, relationshipField, parentRecord );
     }
 
-    // Declares that priorityField should be set at insert time, and secondaryField should be deferred to a post-insert update.
-    // Used to break circular relationships between two SObject types where both cannot be set at insert time.
+    /**
+     * Declares that priorityField should be set at insert time, and secondaryField should be deferred to a post-insert update.
+     * Used to break circular relationships between two SObject types where both cannot be set at insert time.
+     * @param priorityField The priority field.
+     * @param secondaryField The secondary field.
+     */
     public void prioritiseRelationship( SObjectField priorityField, SObjectField secondaryField ) {
         validate( priorityField != null, 'prioritiseRelationship called with a null priorityField' );
         validate( secondaryField != null, 'prioritiseRelationship called with a null secondaryField' );
@@ -139,21 +177,29 @@ public with sharing class UnitOfWork
         secondaryFields.add( secondaryField );
     }
 
-    // Bypasses sharing rules for the given SObjectType during commitWork.
+    /**
+     * Bypasses sharing rules for the given SObjectType during commitWork.
+     * @param type The SObjectType to bypass sharing rules for.
+     */
     public void bypassSharing( SObjectType type ) {
         validate( type != null, 'bypassSharing called with a null type' );
 
         sobjectTypesToBypassSharing.add( type );
     }
 
-    // Bypasses CRUD and FLS rules for the given SObjectType during commitWork.
+    /**
+     * Bypasses CRUD and FLS rules for the given SObjectType during commitWork.
+     * @param type The SObjectType to bypass permissions for.
+     */
     public void bypassPermissions( SObjectType type ) {
         validate( type != null, 'bypassPermissions called with a null type' );
 
         sobjectTypesToBypassPermissions.add( type );
     }
 
-    // Commits all the changes to the database.
+    /**
+     * Commits all the changes to the database.
+     */
     public void commitWork() {
         validate( !committed, 'commitWork has already been called on this UnitOfWork instance' );
 
@@ -298,8 +344,7 @@ public with sharing class UnitOfWork
         Map<SObject, SObject> intraTypeParent = new Map<SObject, SObject>();
         if ( relationships.relationshipsBySobjectType.containsKey( sobjectType ) ) {
             for ( Relationship rel : relationships.relationshipsBySobjectType.get( sobjectType ) ) {
-                if ( secondaryFields.contains( rel.getRelationshipField() ) ) continue;
-                if ( rel.getParentRecord().getSObjectType() == sobjectType ) {
+                if ( !secondaryFields.contains( rel.getRelationshipField() ) && rel.getParentRecord().getSObjectType() == sobjectType ) {
                     intraTypeParent.put( rel.getRecord(), rel.getParentRecord() );
                 }
             }
@@ -379,21 +424,23 @@ public with sharing class UnitOfWork
     // This prevents a double-update race where a separate updateRecordList call would overwrite fields
     // already registered dirty on the same record.
     private void applySecondaryRelationships() {
-        if ( ! secondaryFields.isEmpty() ) {
-            for ( SObjectType thisChildType : relationships.relationshipsBySobjectType.keySet() ) {
-                for ( Relationship thisRelationship : relationships.relationshipsBySobjectType.get( thisChildType ) ) {
-                    if ( secondaryFields.contains( thisRelationship.getRelationshipField() ) ) {
-                        SObject parentRecord = thisRelationship.getParentRecord();
-                        if ( parentRecord.Id == null ) {
-                            throw new RelationshipException( 'Unable to set secondary relationship ' + thisRelationship.getRelationshipField() + ' on record ' + thisRelationship.getRecord() + ' because the parent record has no Id after insert.' );
-                        }
-                        thisRelationship.getRecord().put( thisRelationship.getRelationshipField(), parentRecord.Id );
+        if ( secondaryFields.isEmpty() ) {
+            return;
+        }
 
-                        // Merge the modified record into the dirty map so the update pass picks it up.
-                        // If the record was already registered dirty this merges the new field in rather than
-                        // creating a conflicting second update.
-                        dirtyRecord( thisRelationship.getRecord() );
+        for ( SObjectType thisChildType : relationships.relationshipsBySobjectType.keySet() ) {
+            for ( Relationship thisRelationship : relationships.relationshipsBySobjectType.get( thisChildType ) ) {
+                if ( secondaryFields.contains( thisRelationship.getRelationshipField() ) ) {
+                    SObject parentRecord = thisRelationship.getParentRecord();
+                    if ( parentRecord.Id == null ) {
+                        throw new RelationshipException( 'Unable to set secondary relationship ' + thisRelationship.getRelationshipField() + ' on record ' + thisRelationship.getRecord() + ' because the parent record has no Id after insert.' );
                     }
+                    thisRelationship.getRecord().put( thisRelationship.getRelationshipField(), parentRecord.Id );
+
+                    // Merge the modified record into the dirty map so the update pass picks it up.
+                    // If the record was already registered dirty this merges the new field in rather than
+                    // creating a conflicting second update.
+                    dirtyRecord( thisRelationship.getRecord() );
                 }
             }
         }
@@ -432,10 +479,10 @@ public with sharing class UnitOfWork
         AccessLevel accessLevel = sobjectTypesToBypassPermissions.contains( sobjectType ) ? AccessLevel.SYSTEM_MODE : AccessLevel.USER_MODE;
         Boolean bypassSharing = sobjectTypesToBypassSharing.contains( sobjectType );
 
-        if ( bypassSharing ) {
+        if ( bypassSharing ) { // Only bypass sharing when explicitly configured that way with bypassSharing
             new WithoutSharing().insertRecords( records, accessLevel );
         } else {
-            Database.insert( records, accessLevel );
+            Database.insert( records, accessLevel ); // NOPMD: Uses USER_MODE by default and only SYSTEM_MODE when explicitly configured that way with bypassSharing
         }
     }
 
@@ -454,7 +501,7 @@ public with sharing class UnitOfWork
         if ( bypassSharing ) {
             new WithoutSharing().updateRecords( records, accessLevel );
         } else {
-            Database.update( records, accessLevel );
+            Database.update( records, accessLevel ); // NOPMD: Uses USER_MODE by default and only SYSTEM_MODE when explicitly configured that way with bypassSharing
         }
     }
 
@@ -474,7 +521,7 @@ public with sharing class UnitOfWork
             if ( bypassSharing ) {
                 new WithoutSharing().deleteRecords( new List<Id>( recordIdsToDelete ), accessLevel );
             } else {
-                Database.delete( new List<Id>( recordIdsToDelete ), accessLevel );
+                Database.delete( new List<Id>( recordIdsToDelete ), accessLevel ); // NOPMD: Uses USER_MODE by default and only SYSTEM_MODE when explicitly configured that way with bypassSharing
             }
         }
     }
@@ -592,8 +639,14 @@ public with sharing class UnitOfWork
     }
 
     private class Relationships {
-        @testVisible private Map<SobjectType, List<Relationship>> relationshipsBySobjectType = new Map<SobjectType, List<Relationship>>();
+        @TestVisible private Map<SobjectType, List<Relationship>> relationshipsBySobjectType = new Map<SobjectType, List<Relationship>>();
 
+        /**
+         * Adds a relationship between a record and a parent record.
+         * @param record The record to add a relationship for.
+         * @param relationshipField The relationship field to use.
+         * @param parentRecord The parent record to add a relationship to.
+         */
         public void addRelationship( SObject record, SObjectField relationshipField, SObject parentRecord ) {
             SobjectType recordSobjectType = record.getSObjectType();
 
@@ -604,6 +657,12 @@ public with sharing class UnitOfWork
             relationshipsBySobjectType.get( recordSobjectType ).add( new Relationship( record, relationshipField, parentRecord ) );
         }
 
+        /**
+         * Checks if a record has a relationship.
+         * @param record The record to check for a relationship.
+         * @param relationshipField The relationship field to check for.
+         * @return True if the record has a relationship, false otherwise.
+         */
         public Boolean hasRelationship( SObject record, SObjectField relationshipField ) {
             SobjectType recordSobjectType = record.getSObjectType();
             if ( !relationshipsBySobjectType.containsKey( recordSobjectType ) ) {
@@ -617,14 +676,25 @@ public with sharing class UnitOfWork
             return false;
         }
 
-        // Sets the lookup fields for the given set of records using only priority (non-secondary) relationships.
-        // Throws RelationshipException if a priority relationship's parent has not yet been inserted.
+        /**
+         * Sets the lookup fields for the given set of records using only priority (non-secondary) relationships.
+         * Throws RelationshipException if a priority relationship's parent has not yet been inserted.
+         * @param sobjectType The sobject type to apply relationships for.
+         * @param secondaryFields The set of secondary fields.
+         * @param recordsInWave The set of records to apply relationships for.
+         */
         public void applyPriorityRelationshipsForRecords( SObjectType sobjectType, Set<SObjectField> secondaryFields, Set<SObject> recordsInWave ) {
-            if ( !relationshipsBySobjectType.containsKey( sobjectType ) ) return;
+            if ( !relationshipsBySobjectType.containsKey( sobjectType ) ) {
+                return;
+            }
 
             for ( Relationship rel : relationshipsBySobjectType.get( sobjectType ) ) {
-                if ( secondaryFields.contains( rel.getRelationshipField() ) ) continue;
-                if ( !recordsInWave.contains( rel.getRecord() ) ) continue;
+                if ( secondaryFields.contains( rel.getRelationshipField() ) ) {
+                    continue;
+                }
+                if ( !recordsInWave.contains( rel.getRecord() ) ) {
+                    continue;
+                }
 
                 if ( rel.getParentRecord().Id == null ) {
                     throw new RelationshipException( 'Unable to set relationship ' + rel.getRelationshipField() + ' on record ' + rel.getRecord() + ' because the parent record was not yet inserted.' );
@@ -635,18 +705,39 @@ public with sharing class UnitOfWork
     }
 
     private without sharing class WithoutSharing {
+        /**
+         * Inserts the given set of records WITHOUT SHARING. This is only called when bypassSharing has been called for the SObject type.
+         * @param records The set of records to insert.
+         * @param accessLevel The access level to use for the insert.
+         */
         public void insertRecords( List<SObject> records, AccessLevel accessLevel ) {
-            Database.insert( records, accessLevel );
+            Database.insert( records, accessLevel ); // NOPMD: Uses USER_MODE by default and only SYSTEM_MODE when explicitly configured that way with bypassSharing
         }
 
+        /**
+         * Updates the given set of records WITHOUT SHARING. This is only called when bypassSharing has been called for the SObject type.
+         * @param records The set of records to update.
+         * @param accessLevel The access level to use for the update.
+         */
         public void updateRecords( List<SObject> records, AccessLevel accessLevel ) {
-            Database.update( records, accessLevel );
+            Database.update( records, accessLevel ); // NOPMD: Uses USER_MODE by default and only SYSTEM_MODE when explicitly configured that way with bypassSharing
         }
 
+        /**
+         * Deletes the given set of records WITHOUT SHARING. This is only called when bypassSharing has been called for the SObject type.
+         * @param recordIds The set of record IDs to delete.
+         * @param accessLevel The access level to use for the delete.
+         */
         public void deleteRecords( List<Id> recordIds, AccessLevel accessLevel ) {
-            Database.delete( recordIds, accessLevel );
+            Database.delete( recordIds, accessLevel ); // NOPMD: Uses USER_MODE by default and only SYSTEM_MODE when explicitly configured that way with bypassSharing
         }
 
+        /**
+         * Permanently deletes the given set of records WITHOUT SHARING. This is only called when bypassSharing has been called for the SObject type.
+         * Note that sharing isn't enforced by Apex on the recycle bin but this method is always called AFTER deleting records which does enforce sharing
+         * @param records The set of records to permanently delete.
+         * @return The results of the permanent delete operation.
+         */
         public List<Database.EmptyRecycleBinResult> permanentlyDeleteRecords( List<SObject> records ) {
             return Database.emptyRecycleBin( records );
         }
@@ -657,15 +748,15 @@ public with sharing class UnitOfWork
         private SObjectField relationshipField;
         private SObject parentRecord;
 
-        public Relationship( SObject record, SObjectField relationshipField, SObject parentRecord ) {
+        private Relationship( SObject record, SObjectField relationshipField, SObject parentRecord ) {
             this.record = record;
             this.relationshipField = relationshipField;
             this.parentRecord = parentRecord;
         }
 
-        public SObject getRecord() { return record; }
-        public SObjectField getRelationshipField() { return relationshipField; }
-        public SObject getParentRecord() { return parentRecord; }
+        private SObject getRecord() { return record; }
+        private SObjectField getRelationshipField() { return relationshipField; }
+        private SObject getParentRecord() { return parentRecord; }
     }
 
     // Throws a ValidationException if the condition is false
