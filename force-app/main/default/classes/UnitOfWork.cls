@@ -340,34 +340,41 @@ public with sharing class UnitOfWork
             return;
         }
 
-        // Collect intra-type priority dependencies: record -> its same-type parent record
-        Map<SObject, SObject> intraTypeParent = new Map<SObject, SObject>();
+        // Collect intra-type priority dependencies only for new same-type parents in this insert batch.
+        // Existing same-type parents already have Ids and do not constrain wave ordering.
+        Set<SObject> recordsToInsertSet = new Set<SObject>( recordsToInsert );
+        Map<SObject, Set<SObject>> intraTypeParentsByRecord = new Map<SObject, Set<SObject>>();
         if ( relationships.relationshipsBySobjectType.containsKey( sobjectType ) ) {
-            for ( Relationship rel : relationships.relationshipsBySobjectType.get( sobjectType ) ) {
-                if ( !secondaryFields.contains( rel.getRelationshipField() ) && rel.getParentRecord().getSObjectType() == sobjectType ) {
-                    intraTypeParent.put( rel.getRecord(), rel.getParentRecord() );
+            for ( Relationship thisRelationship : relationships.relationshipsBySobjectType.get( sobjectType ) ) {
+                if ( secondaryFields.contains( thisRelationship.getRelationshipField() ) || thisRelationship.getParentRecord().getSObjectType() != sobjectType || !recordsToInsertSet.contains( thisRelationship.getParentRecord() ) ) {
+                    continue;
                 }
+
+                if ( !intraTypeParentsByRecord.containsKey( thisRelationship.getRecord() ) ) {
+                    intraTypeParentsByRecord.put( thisRelationship.getRecord(), new Set<SObject>() );
+                }
+                intraTypeParentsByRecord.get( thisRelationship.getRecord() ).add( thisRelationship.getParentRecord() );
             }
         }
 
-        if ( intraTypeParent.isEmpty() ) {
+        if ( intraTypeParentsByRecord.isEmpty() ) {
             // No intra-type dependencies: apply all priority relationships and insert in one batch
-            relationships.applyPriorityRelationshipsForRecords( sobjectType, secondaryFields, new Set<SObject>( recordsToInsert ) );
+            relationships.applyPriorityRelationshipsForRecords( sobjectType, secondaryFields, recordsToInsert );
             insertRecords( recordsToInsert, sobjectType );
         } else {
             // Split into waves so that parent records are inserted before their children
-            List<List<SObject>> waves = topologicalSortRecords( recordsToInsert, intraTypeParent );
+            List<List<SObject>> waves = topologicalSortRecords( recordsToInsert, intraTypeParentsByRecord );
             for ( List<SObject> wave : waves ) {
-                relationships.applyPriorityRelationshipsForRecords( sobjectType, secondaryFields, new Set<SObject>( wave ) );
+                relationships.applyPriorityRelationshipsForRecords( sobjectType, secondaryFields, wave );
                 insertRecords( wave, sobjectType );
             }
         }
     }
 
     // Topologically sorts records within a single SObject type into insertion waves.
-    // intraTypeParent maps each child record to the same-type parent record it depends on.
+    // intraTypeParentsByRecord maps each child record to the same-type parent records it depends on.
     // Returns a list of waves; all records in a wave can be inserted in a single DML statement.
-    private List<List<SObject>> topologicalSortRecords( List<SObject> records, Map<SObject, SObject> intraTypeParent ) {
+    private List<List<SObject>> topologicalSortRecords( List<SObject> records, Map<SObject, Set<SObject>> intraTypeParentsByRecord ) {
         Map<SObject, Integer> inDegreeByRecord = new Map<SObject, Integer>();
         Map<SObject, List<SObject>> childrenByRecord = new Map<SObject, List<SObject>>();
 
@@ -377,13 +384,14 @@ public with sharing class UnitOfWork
         }
 
         for ( SObject record : records ) {
-            if ( intraTypeParent.containsKey( record ) ) {
-                SObject parent = intraTypeParent.get( record );
-                inDegreeByRecord.put( record, inDegreeByRecord.get( record ) + 1 );
-                if ( !childrenByRecord.containsKey( parent ) ) {
-                    childrenByRecord.put( parent, new List<SObject>() );
+            if ( intraTypeParentsByRecord.containsKey( record ) ) {
+                for ( SObject parent : intraTypeParentsByRecord.get( record ) ) {
+                    inDegreeByRecord.put( record, inDegreeByRecord.get( record ) + 1 );
+                    if ( !childrenByRecord.containsKey( parent ) ) {
+                        childrenByRecord.put( parent, new List<SObject>() );
+                    }
+                    childrenByRecord.get( parent ).add( record );
                 }
-                childrenByRecord.get( parent ).add( record );
             }
         }
 
@@ -681,25 +689,27 @@ public with sharing class UnitOfWork
          * Throws RelationshipException if a priority relationship's parent has not yet been inserted.
          * @param sobjectType The sobject type to apply relationships for.
          * @param secondaryFields The set of secondary fields.
-         * @param recordsInWave The set of records to apply relationships for.
+         * @param recordsInWave The list of records to apply relationships for.
          */
-        public void applyPriorityRelationshipsForRecords( SObjectType sobjectType, Set<SObjectField> secondaryFields, Set<SObject> recordsInWave ) {
+        public void applyPriorityRelationshipsForRecords( SObjectType sobjectType, Set<SObjectField> secondaryFields, List<SObject> recordsInWave ) {
             if ( !relationshipsBySobjectType.containsKey( sobjectType ) ) {
                 return;
             }
 
-            for ( Relationship rel : relationshipsBySobjectType.get( sobjectType ) ) {
-                if ( secondaryFields.contains( rel.getRelationshipField() ) ) {
-                    continue;
-                }
-                if ( !recordsInWave.contains( rel.getRecord() ) ) {
-                    continue;
-                }
+            for ( SObject thisRecord : recordsInWave ) {
+                for ( Relationship rel : relationshipsBySobjectType.get( sobjectType ) ) {
+                    if ( rel.getRecord() != thisRecord ) {
+                        continue;
+                    }
+                    if ( secondaryFields.contains( rel.getRelationshipField() ) ) {
+                        continue;
+                    }
 
-                if ( rel.getParentRecord().Id == null ) {
-                    throw new RelationshipException( 'Unable to set relationship ' + rel.getRelationshipField() + ' on record ' + rel.getRecord() + ' because the parent record was not yet inserted.' );
+                    if ( rel.getParentRecord().Id == null ) {
+                        throw new RelationshipException( 'Unable to set relationship ' + rel.getRelationshipField() + ' on record ' + rel.getRecord() + ' because the parent record was not yet inserted.' );
+                    }
+                    rel.getRecord().put( rel.getRelationshipField(), rel.getParentRecord().Id );
                 }
-                rel.getRecord().put( rel.getRelationshipField(), rel.getParentRecord().Id );
             }
         }
     }
