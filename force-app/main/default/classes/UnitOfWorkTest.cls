@@ -1326,6 +1326,181 @@ private class UnitOfWorkTest {
     }
 
     @IsTest
+    private static void commitWork_whenNewRecordHasExistingIntraSobjectParent_commitsSuccessfully() {
+        UnitOfWork uow = new UnitOfWork();
+
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType }, new Set<SobjectField> { Account.ParentId } );
+
+        Account existingParentAccount;
+        System.runAs( testUser ) {
+            existingParentAccount = new Account( Name = 'Existing parent account' );
+            insert existingParentAccount;
+        }
+
+        Account childAccount = new Account( Name = 'Child account' );
+        uow.registerNew( childAccount );
+        uow.registerRelationship( childAccount, Account.ParentId, existingParentAccount );
+
+        Integer dmlStatementsIssuedBefore;
+        Integer dmlRowsIssuedBefore;
+        Integer dmlStatementsIssuedAfter;
+        Integer dmlRowsIssuedAfter;
+        Account childAccountAfter;
+
+        Test.startTest();
+        System.runAs( testUser ) {
+            dmlStatementsIssuedBefore = Limits.getDmlStatements();
+            dmlRowsIssuedBefore = Limits.getDmlRows();
+
+            uow.commitWork();
+
+            dmlStatementsIssuedAfter = Limits.getDmlStatements();
+            dmlRowsIssuedAfter = Limits.getDmlRows();
+
+            childAccountAfter = [ SELECT Id, Name, ParentId FROM Account WHERE Id = :childAccount.Id ];
+        }
+        Test.stopTest();
+
+        Integer expectedExtraDmlStatements = 1 + 1; // 1 is used by SavePoint and 1 by the child account insert.
+        Integer expectedExtraDmlRows = 1; // 1 by the child account insert.
+
+        Assert.areEqual( dmlStatementsIssuedBefore + expectedExtraDmlStatements, dmlStatementsIssuedAfter, 'commitWork, when called with a new record that references an existing intra-sobject parent, should not split the insert into extra waves' );
+        Assert.areEqual( dmlRowsIssuedBefore + expectedExtraDmlRows, dmlRowsIssuedAfter, 'commitWork, when called with a new record that references an existing intra-sobject parent, should issue the minimum required number of DML rows' );
+
+        Assert.isNotNull( childAccountAfter, 'commitWork, when called with a new record that references an existing intra-sobject parent, should commit the child account' );
+        Assert.areEqual( childAccount.Name, childAccountAfter.Name, 'commitWork, when called with a new record that references an existing intra-sobject parent, should preserve the child account name' );
+        Assert.areEqual( existingParentAccount.Id, childAccountAfter.ParentId, 'commitWork, when called with a new record that references an existing intra-sobject parent, should set the parent relationship on the child account' );
+    }
+
+    @IsTest
+    private static void commitWork_whenNewRecordHasMultipleIntraSobjectParents_waitsForAllParentsBeforeInsert() {
+        UnitOfWork uow = new UnitOfWork();
+
+        // We can't ship a second Account self-lookup for tests so we simulate one using the Site field on Account.
+        SobjectField secondParentLookupOnAccount = Account.Site;
+
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType }, new Set<SobjectField> { Account.ParentId, secondParentLookupOnAccount } );
+
+        Account grandparentAccount = new Account( Name = 'Grandparent account' );
+        Account firstParentAccount = new Account( Name = 'First parent account' );
+        Account secondParentAccount = new Account( Name = 'Second parent account' );
+        Account childAccount = new Account( Name = 'Child account' );
+
+        uow.registerNew( grandparentAccount );
+        uow.registerNew( firstParentAccount );
+        uow.registerNew( secondParentAccount );
+        uow.registerNew( childAccount );
+        uow.registerRelationship( firstParentAccount, Account.ParentId, grandparentAccount );
+        uow.registerRelationship( childAccount, Account.ParentId, firstParentAccount );
+        uow.registerRelationship( childAccount, secondParentLookupOnAccount, secondParentAccount );
+
+        Integer dmlStatementsIssuedBefore;
+        Integer dmlRowsIssuedBefore;
+        Integer dmlStatementsIssuedAfter;
+        Integer dmlRowsIssuedAfter;
+        Map<Id,Account> testAccountsAfter;
+
+        Test.startTest();
+        System.runAs( testUser ) {
+            dmlStatementsIssuedBefore = Limits.getDmlStatements();
+            dmlRowsIssuedBefore = Limits.getDmlRows();
+
+            uow.commitWork();
+
+            dmlStatementsIssuedAfter = Limits.getDmlStatements();
+            dmlRowsIssuedAfter = Limits.getDmlRows();
+
+            testAccountsAfter = new Map<Id,Account>([ SELECT Id, Name, ParentId FROM Account WHERE Id IN :new List<Id>{ grandparentAccount.Id, firstParentAccount.Id, secondParentAccount.Id, childAccount.Id } ]);
+        }
+        Test.stopTest();
+
+        Integer expectedExtraDmlStatements = 1 + 3; // 1 is used by SavePoint, 1 by the grandparent and second parent, 1 by the first parent and 1 by the child account.
+        Integer expectedExtraDmlRows = 4; // 1 for each inserted account.
+
+        Assert.areEqual( dmlStatementsIssuedBefore + expectedExtraDmlStatements, dmlStatementsIssuedAfter, 'commitWork, when called with a record that has multiple intra-sobject parents, should issue the minimum required number of DML statements' );
+        Assert.areEqual( dmlRowsIssuedBefore + expectedExtraDmlRows, dmlRowsIssuedAfter, 'commitWork, when called with a record that has multiple intra-sobject parents, should issue the minimum required number of DML rows' );
+
+        Assert.isTrue( testAccountsAfter.size() == 4, 'commitWork, when called with a record that has multiple intra-sobject parents, should commit all accounts' );
+
+        Account grandparentAccountAfter = testAccountsAfter.get( grandparentAccount.Id );
+        Account firstParentAccountAfter = testAccountsAfter.get( firstParentAccount.Id );
+        Account secondParentAccountAfter = testAccountsAfter.get( secondParentAccount.Id );
+        Account childAccountAfter = testAccountsAfter.get( childAccount.Id );
+
+        Assert.areEqual( grandparentAccount.Name, grandparentAccountAfter.Name, 'commitWork, when called with a record that has multiple intra-sobject parents, should commit the grandparent account' );
+        Assert.areEqual( firstParentAccount.Name, firstParentAccountAfter.Name, 'commitWork, when called with a record that has multiple intra-sobject parents, should commit the first parent account' );
+        Assert.areEqual( secondParentAccount.Name, secondParentAccountAfter.Name, 'commitWork, when called with a record that has multiple intra-sobject parents, should commit the second parent account' );
+        Assert.areEqual( childAccount.Name, childAccountAfter.Name, 'commitWork, when called with a record that has multiple intra-sobject parents, should commit the child account' );
+
+        Assert.areEqual( grandparentAccount.Id, firstParentAccountAfter.ParentId, 'commitWork, when called with a record that has multiple intra-sobject parents, should set the grandparent relationship on the first parent account' );
+        Assert.areEqual( firstParentAccount.Id, childAccountAfter.ParentId, 'commitWork, when called with a record that has multiple intra-sobject parents, should set the first parent relationship on the child account' );
+    }
+
+    @IsTest
+    private static void commitWork_whenNewRecordHasSingleFakeRelationshipFieldOnInsert_persistsTheParentIdValue() {
+        UnitOfWork uow = new UnitOfWork();
+
+        // We can't ship a custom text field for tests so we simulate one using the Site field on Account.
+        SobjectField fakeRelationshipField = Account.Site;
+
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType }, new Set<SobjectField> { fakeRelationshipField } );
+
+        Account parentAccount = new Account( Name = 'Parent account' );
+        Account childAccount = new Account( Name = 'Child account' );
+
+        uow.registerNew( parentAccount );
+        uow.registerNew( childAccount );
+        uow.registerRelationship( childAccount, fakeRelationshipField, parentAccount );
+
+        Account childAccountAfter;
+
+        Test.startTest();
+        System.runAs( testUser ) {
+            uow.commitWork();
+            childAccountAfter = [ SELECT Id, Name, Site FROM Account WHERE Id = :childAccount.Id ];
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( childAccountAfter, 'commitWork, when called with a single fake relationship field on insert, should commit the child account' );
+        Assert.areEqual( childAccount.Name, childAccountAfter.Name, 'commitWork, when called with a single fake relationship field on insert, should preserve the child account name' );
+        Assert.areEqual( parentAccount.Id, childAccountAfter.get( fakeRelationshipField ), 'commitWork, when called with a single fake relationship field on insert, should persist the parent Id value to the fake relationship field' );
+    }
+
+    @IsTest
+    private static void commitWork_whenNewRecordHasLookupAndFakeRelationshipFieldOnInsert_persistsBothRelationshipValues() {
+        UnitOfWork uow = new UnitOfWork();
+
+        // We can't ship a custom text field for tests so we simulate one using the Site field on Account.
+        SobjectField fakeRelationshipField = Account.Site;
+
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType }, new Set<SobjectField> { Account.ParentId, fakeRelationshipField } );
+
+        Account lookupParentAccount = new Account( Name = 'Lookup parent account' );
+        Account fakeRelationshipParentAccount = new Account( Name = 'Fake relationship parent account' );
+        Account childAccount = new Account( Name = 'Child account' );
+
+        uow.registerNew( lookupParentAccount );
+        uow.registerNew( fakeRelationshipParentAccount );
+        uow.registerNew( childAccount );
+        uow.registerRelationship( childAccount, Account.ParentId, lookupParentAccount );
+        uow.registerRelationship( childAccount, fakeRelationshipField, fakeRelationshipParentAccount );
+
+        Account childAccountAfter;
+
+        Test.startTest();
+        System.runAs( testUser ) {
+            uow.commitWork();
+            childAccountAfter = [ SELECT Id, Name, ParentId, Site FROM Account WHERE Id = :childAccount.Id ];
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( childAccountAfter, 'commitWork, when called with a lookup and fake relationship field on insert, should commit the child account' );
+        Assert.areEqual( childAccount.Name, childAccountAfter.Name, 'commitWork, when called with a lookup and fake relationship field on insert, should preserve the child account name' );
+        Assert.areEqual( lookupParentAccount.Id, childAccountAfter.ParentId, 'commitWork, when called with a lookup and fake relationship field on insert, should persist the lookup relationship value' );
+        Assert.areEqual( fakeRelationshipParentAccount.Id, childAccountAfter.get( fakeRelationshipField ), 'commitWork, when called with a lookup and fake relationship field on insert, should persist the fake relationship field value' );
+    }
+
+    @IsTest
     private static void commitWork_whenCircularRelationshipsRegistered_splitsDmlAndCommitsSuccessfully() {
         UnitOfWork uow = new UnitOfWork();
 
