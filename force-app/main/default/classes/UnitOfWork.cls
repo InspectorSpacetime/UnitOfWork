@@ -23,8 +23,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-@SuppressWarnings('PMD.CognitiveComplexity') // This is a self-contained library class so cognitive complexity is not a concern
-@SuppressWarnings('PMD.CyclomaticComplexity') // This is a self-contained library class so cyclomatic complexity is not a concern
+@SuppressWarnings('PMD.CognitiveComplexity,PMD.CyclomaticComplexity') // This is a self-contained library class so cognitive and cyclomatic complexity is not a concern
 /**
  * A simple Unit of Work implementation in the Salesforce Apex programming language.
  * @author Jai Jordan

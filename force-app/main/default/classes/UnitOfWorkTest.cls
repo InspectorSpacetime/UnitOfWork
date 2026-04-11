@@ -24,10 +24,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 @IsTest
-@SuppressWarnings('PMD.MethodNamingConventions') // The use of underscores to separate method name, scenario and outcome is deliberate
-@SuppressWarnings('PMD.CyclomaticComplexity') // This is a self-contained library test class so cyclomatic complexity is not a concern
-@SuppressWarnings('PMD.NcssCount') // This is a self-contained library test class so class length is not a concern
-@SuppressWarnings('PMD.ApexUnitTestClassShouldHaveRunAs') // Tests that test security do use runAs but some tests are for parameter validation
+@SuppressWarnings('PMD.MethodNamingConventions,PMD.CyclomaticComplexity,PMD.NcssCount,PMD.ApexUnitTestClassShouldHaveRunAs')
+// The use of underscores to separate method name, scenario and outcome is deliberate
+// This is a self-contained library test class so cyclomatic complexity and class length are not a concern
+// Tests that test security do use runAs but some tests are for parameter validation
 // CPD-OFF Apex tests methods often have similar structure to maintain readability
 /**
  * @description Test class for the UnitOfWork class.
