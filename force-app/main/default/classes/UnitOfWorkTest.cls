@@ -643,7 +643,7 @@ private class UnitOfWorkTest {
     private static void registerRelationship_whenDistinctNewRecordsWithEqualFieldValuesRegisteredOnSameField_registersBoth() {
         UnitOfWork unitOfWork = new UnitOfWork();
         // Two separate instances with identical field values: Apex == compares sObjects by value,
-        // so without the registered-instance count the second registration would be refused as a duplicate
+        // so without the reference-identity comparison the second registration would be refused as a duplicate
         Contact firstContact = new Contact( FirstName = 'John', LastName = 'Smith' );
         Contact secondContact = new Contact( FirstName = 'John', LastName = 'Smith' );
         Account account1 = new Account( Name = 'Account 1' );

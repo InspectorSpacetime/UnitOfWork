@@ -347,8 +347,8 @@ public with sharing class UnitOfWork
         Map<Integer, Set<Integer>> intraTypeParentPositionsByRecordPosition = new Map<Integer, Set<Integer>>();
         if ( relationships.relationshipsBySobjectType.containsKey( sobjectType ) ) {
             for ( Relationship thisRelationship : relationships.relationshipsBySobjectType.get( sobjectType ) ) {
-                if ( secondaryFields.contains( thisRelationship.getRelationshipField() ) || thisRelationship.getParentRecord().getSObjectType() != sobjectType ) {
-                    continue;
+                if ( secondaryFields.contains( thisRelationship.getRelationshipField() ) || thisRelationship.getParentRecord().getSObjectType() != sobjectType || thisRelationship.getParentRecord().Id != null ) {
+                    continue; // only a new same-type parent constrains wave ordering
                 }
                 Integer parentPosition = positionOf( recordsToInsert, thisRelationship.getParentRecord() );
                 if ( parentPosition == null ) {
@@ -478,15 +478,20 @@ public with sharing class UnitOfWork
     // before their update DML so that lookup fields are set correctly.
     private void applyPriorityRelationshipsForDirtyRecordsOfSobjectType( SObjectType sobjectType ) {
         if ( relationships.relationshipsBySobjectType.containsKey( sobjectType ) ) {
-            List<SObject> newRecordsForType = newRecordsBySobjectType.containsKey( sobjectType )
-                ? newRecordsBySobjectType.get( sobjectType )
-                : new List<SObject>();
+            // New records have been inserted by now, so their Ids identify them; a dirty record can
+            // never share an Id with a record that was only just inserted.
+            Set<Id> newRecordIdsForType = new Set<Id>();
+            if ( newRecordsBySobjectType.containsKey( sobjectType ) ) {
+                for ( SObject thisNewRecord : newRecordsBySobjectType.get( sobjectType ) ) {
+                    newRecordIdsForType.add( thisNewRecord.Id );
+                }
+            }
 
             for ( Relationship thisRelationship : relationships.relationshipsBySobjectType.get( sobjectType ) ) {
                 if ( secondaryFields.contains( thisRelationship.getRelationshipField() ) ) {
                     continue; // handled by applySecondaryRelationships
                 }
-                if ( positionOf( newRecordsForType, thisRelationship.getRecord() ) != null ) {
+                if ( newRecordIdsForType.contains( thisRelationship.getRecord().Id ) ) {
                     continue; // already applied during insert wave
                 }
 
