@@ -1312,7 +1312,7 @@ private class UnitOfWorkTest {
 
         // Contact is granted and Account withheld: with Person Accounts, Account cannot be granted without Contact
         User otherUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType, Contact.SObjectType }, new Set<SobjectField> {} );
-        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Contact.SObjectType }, new Set<SobjectField> {} );
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Contact.SObjectType }, new Set<SobjectField> { Contact.Department } );
 
         Account testAccount = new Account( Name = 'Test Account' );
         Account otherAccount = new Account( Name = 'Other Account' );
@@ -1332,9 +1332,10 @@ private class UnitOfWorkTest {
         Test.startTest();
         System.runAs( testUser ) {
             try {
-                // A relationship to an Account that is not being deleted makes Contact depend on Account, so deletes run
-                // Contact first (permitted) and Account second (refused); the relationship itself is a permitted Contact update
-                unitOfWork.registerRelationship( testContact, Contact.AccountId, otherAccount );
+                // A fake text relationship to an Account that is not being deleted makes Contact depend on Account, so
+                // deletes run Contact first (permitted) and Account second (refused). The relationship itself is a permitted
+                // Contact update; a text field rather than the AccountId lookup, because the user has no access to Accounts
+                unitOfWork.registerRelationship( testContact, Contact.Department, otherAccount );
                 unitOfWork.registerDeleted( testContact );
                 unitOfWork.registerDeleted( testAccount );
 
@@ -1349,14 +1350,14 @@ private class UnitOfWorkTest {
         Test.stopTest();
 
         List<Account> testAccountsAfter = [ SELECT Id FROM Account WHERE Id = :testAccount.Id ];
-        List<Contact> testContactsAfter = [ SELECT Id, AccountId FROM Contact WHERE Id = :testContact.Id ];
+        List<Contact> testContactsAfter = [ SELECT Id, Department FROM Contact WHERE Id = :testContact.Id ];
 
         Assert.isNotNull( thrownException, 'commitWork, when deleting a record the user has permission for and then one it does not, should throw an exception' );
         Assert.areEqual( 'commitWork failed with exception: Access to entity \'Account\' denied', thrownException.getMessage(), 'commitWork, when deleting a record the user has permission for and then one it does not, should throw a CommitException naming the refused entity' );
         // 1 for the Savepoint, 1 for the permitted Contact update, 1 for the permitted Contact delete, 1 for the refused Account delete (the access check counts the statement), 1 for the rollback
         Assert.areEqual( dmlStatementsIssuedBefore + 5, dmlStatementsIssuedAfter, 'commitWork, when deleting a record the user has permission for and then one it does not, should issue the permitted update and delete, the refused delete and the rollback' );
         Assert.isFalse( testContactsAfter.isEmpty(), 'commitWork, when deleting a record the user has permission for and then one it does not, should roll back the permitted delete' );
-        Assert.isNull( testContactsAfter[ 0 ].AccountId, 'commitWork, when deleting a record the user has permission for and then one it does not, should roll back the permitted update' );
+        Assert.isNull( testContactsAfter[ 0 ].Department, 'commitWork, when deleting a record the user has permission for and then one it does not, should roll back the permitted update' );
         Assert.isFalse( testAccountsAfter.isEmpty(), 'commitWork, when deleting a record the user has permission for and then one it does not, should not delete the refused record' );
     }
 
