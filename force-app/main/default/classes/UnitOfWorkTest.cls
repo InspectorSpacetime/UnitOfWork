@@ -1274,17 +1274,25 @@ private class UnitOfWorkTest {
         }
 
         UnitOfWork.CommitException thrownException;
+        Integer dmlStatementsIssuedBefore;
+        Integer dmlStatementsIssuedAfter;
 
         Test.startTest();
         System.runAs( testUser ) {
             try {
                 Contact modifiedTestContact = new Contact( Id = testContact.Id, FirstName = 'Modified Test', LastName = 'Contact' );
+                Account modifiedTestAccount = new Account( Id = testAccount.Id, Name = 'Modified Test Account' );
                 unitOfWork.registerDirty( modifiedTestContact );
-                unitOfWork.registerDirty( testAccount );
+                unitOfWork.registerDirty( modifiedTestAccount );
+                // The fake relationship makes the Contact the Account's parent, so the permitted update is issued before the refused one
+                unitOfWork.registerRelationship( modifiedTestAccount, Account.Site, testContact );
+
+                dmlStatementsIssuedBefore = Limits.getDmlStatements();
                 unitOfWork.commitWork();
             }
             catch ( UnitOfWork.CommitException ex ) {
                 thrownException = ex;
+                dmlStatementsIssuedAfter = Limits.getDmlStatements();
             }
         }
         Test.stopTest();
@@ -1293,6 +1301,8 @@ private class UnitOfWorkTest {
 
         Assert.isNotNull( thrownException, 'commitWork, when updating a record the user has permission for and then one it does not, should throw an exception' );
         Assert.areEqual( 'commitWork failed with exception: Access to entity \'Account\' denied', thrownException.getMessage(), 'commitWork, when updating a record the user has permission for and then one it does not, should throw a CommitException naming the refused entity' );
+        // 1 for the Savepoint, 1 for the permitted Contact update, 1 for the refused Account update (the access check counts the statement), 1 for the rollback
+        Assert.areEqual( dmlStatementsIssuedBefore + 4, dmlStatementsIssuedAfter, 'commitWork, when updating a record the user has permission for and then one it does not, should issue the permitted update, the refused update and the rollback' );
         Assert.areEqual( 'Test', updatedTestContact.FirstName, 'commitWork, when updating a record the user has permission for and then one it does not, should roll back the permitted update' );
     }
 
@@ -1305,36 +1315,48 @@ private class UnitOfWorkTest {
         User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Contact.SObjectType }, new Set<SobjectField> {} );
 
         Account testAccount = new Account( Name = 'Test Account' );
+        Account otherAccount = new Account( Name = 'Other Account' );
         Contact testContact = new Contact( FirstName = 'Test', LastName = 'Contact' );
 
         System.runAs( otherUser ) {
-            insert testAccount;
+            insert new List<Account> { testAccount, otherAccount };
         }
         System.runAs( testUser ) {
             insert testContact;
         }
 
         UnitOfWork.CommitException thrownException;
+        Integer dmlStatementsIssuedBefore;
+        Integer dmlStatementsIssuedAfter;
 
         Test.startTest();
         System.runAs( testUser ) {
             try {
+                // A relationship to an Account that is not being deleted makes Contact depend on Account, so deletes run
+                // Contact first (permitted) and Account second (refused); the relationship itself is a permitted Contact update
+                unitOfWork.registerRelationship( testContact, Contact.AccountId, otherAccount );
                 unitOfWork.registerDeleted( testContact );
                 unitOfWork.registerDeleted( testAccount );
+
+                dmlStatementsIssuedBefore = Limits.getDmlStatements();
                 unitOfWork.commitWork();
             }
             catch ( UnitOfWork.CommitException ex ) {
                 thrownException = ex;
+                dmlStatementsIssuedAfter = Limits.getDmlStatements();
             }
         }
         Test.stopTest();
 
         List<Account> testAccountsAfter = [ SELECT Id FROM Account WHERE Id = :testAccount.Id ];
-        List<Contact> testContactsAfter = [ SELECT Id FROM Contact WHERE Id = :testContact.Id ];
+        List<Contact> testContactsAfter = [ SELECT Id, AccountId FROM Contact WHERE Id = :testContact.Id ];
 
         Assert.isNotNull( thrownException, 'commitWork, when deleting a record the user has permission for and then one it does not, should throw an exception' );
         Assert.areEqual( 'commitWork failed with exception: Access to entity \'Account\' denied', thrownException.getMessage(), 'commitWork, when deleting a record the user has permission for and then one it does not, should throw a CommitException naming the refused entity' );
+        // 1 for the Savepoint, 1 for the permitted Contact update, 1 for the permitted Contact delete, 1 for the refused Account delete (the access check counts the statement), 1 for the rollback
+        Assert.areEqual( dmlStatementsIssuedBefore + 5, dmlStatementsIssuedAfter, 'commitWork, when deleting a record the user has permission for and then one it does not, should issue the permitted update and delete, the refused delete and the rollback' );
         Assert.isFalse( testContactsAfter.isEmpty(), 'commitWork, when deleting a record the user has permission for and then one it does not, should roll back the permitted delete' );
+        Assert.isNull( testContactsAfter[ 0 ].AccountId, 'commitWork, when deleting a record the user has permission for and then one it does not, should roll back the permitted update' );
         Assert.isFalse( testAccountsAfter.isEmpty(), 'commitWork, when deleting a record the user has permission for and then one it does not, should not delete the refused record' );
     }
 
