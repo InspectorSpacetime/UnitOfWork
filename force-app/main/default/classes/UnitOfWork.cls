@@ -158,10 +158,33 @@ public with sharing class UnitOfWork
         DescribeFieldResult fieldDescribe = relationshipField.getDescribe();
 
         validate( fieldDescribe.getSobjectType() == recordSobjectType, 'registerRelationship called with a relationship field from a different SobjectType than the record SobjectType' );
-        validate( !relationships.hasRelationship( record, relationshipField ), 'registerRelationship called with a relationship field that has already been registered for this record' );
+        // Apex compares sObjects with == by field value, not by reference, so two distinct new
+        // instances with identical field values are indistinguishable here. They are fungible
+        // until their lookups are set, so allow one relationship on this field per registered
+        // instance rather than one per value. A record that was not registered as new (a dirty
+        // record, whose Id already makes it distinct) keeps the one-per-record rule.
+        Integer relationshipsAlreadyRegistered = relationships.countRelationships( record, relationshipField );
+        Integer equalInstancesRegisteredAsNew = Math.max( 1, countEqualNewRecords( record ) );
+        validate( relationshipsAlreadyRegistered < equalInstancesRegisteredAsNew, 'registerRelationship called with a relationship field that has already been registered for this record' );
         validate( !isRegisteredForDeletion( parentRecord ), 'registerRelationship called with a parent record that has been registered for deletion' );
 
         relationships.addRelationship( record, relationshipField, parentRecord );
+    }
+
+    // Counts the records registered as new for the record's SObjectType whose field values equal
+    // the given record's. Distinct instances with equal values count separately because
+    // registerNew keeps them in a List, which does not collapse equal values the way a Set would.
+    private Integer countEqualNewRecords( SObject record ) {
+        Integer equalRecordCount = 0;
+        List<SObject> newRecordsForType = newRecordsBySobjectType.get( record.getSObjectType() );
+        if ( newRecordsForType != null ) {
+            for ( SObject thisNewRecord : newRecordsForType ) {
+                if ( thisNewRecord == record ) {
+                    equalRecordCount++;
+                }
+            }
+        }
+        return equalRecordCount;
     }
 
     /**
@@ -666,22 +689,26 @@ public with sharing class UnitOfWork
         }
 
         /**
-         * Checks if a record has a relationship.
-         * @param record The record to check for a relationship.
-         * @param relationshipField The relationship field to check for.
-         * @return True if the record has a relationship, false otherwise.
+         * Counts the relationships registered on the given field for records equal to the given record.
+         * Records are compared with ==, which for sObjects compares field values, so distinct instances
+         * with equal values are counted together; registerRelationship reconciles that count against
+         * the number of equal instances registered as new.
+         * @param record The record to count relationships for.
+         * @param relationshipField The relationship field to count.
+         * @return The number of relationships registered on the field for records equal to the given record.
          */
-        public Boolean hasRelationship( SObject record, SObjectField relationshipField ) {
+        public Integer countRelationships( SObject record, SObjectField relationshipField ) {
+            Integer relationshipCount = 0;
             SobjectType recordSobjectType = record.getSObjectType();
             if ( !relationshipsBySobjectType.containsKey( recordSobjectType ) ) {
-                return false;
+                return relationshipCount;
             }
             for ( Relationship thisRelationship : relationshipsBySobjectType.get( recordSobjectType ) ) {
                 if ( thisRelationship.getRecord() == record && thisRelationship.getRelationshipField() == relationshipField ) {
-                    return true;
+                    relationshipCount++;
                 }
             }
-            return false;
+            return relationshipCount;
         }
 
         /**

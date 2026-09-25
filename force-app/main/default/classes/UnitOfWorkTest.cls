@@ -615,6 +615,82 @@ private class UnitOfWorkTest {
     }
 
     @IsTest
+    private static void registerRelationship_whenSameFieldRegisteredTwiceForSameNewRecord_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
+        Account account1 = new Account( Name = 'Account 1' );
+        Account account2 = new Account( Name = 'Account 2' );
+
+        unitOfWork.registerNew( testContact );
+        unitOfWork.registerRelationship( testContact, Contact.AccountId, account1 );
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.registerRelationship( testContact, Contact.AccountId, account2 );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'registerRelationship, when the same field is registered twice for the same new record, should throw an exception' );
+        Assert.areEqual( 'registerRelationship called with a relationship field that has already been registered for this record', thrownException.getMessage(), 'registerRelationship, when the same field is registered twice for the same new record, should throw a ValidationException' );
+    }
+
+    @IsTest
+    private static void registerRelationship_whenDistinctNewRecordsWithEqualFieldValuesRegisteredOnSameField_registersBoth() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        // Two separate instances with identical field values: Apex == compares sObjects by value,
+        // so without the registered-instance count the second registration would be refused as a duplicate
+        Contact firstContact = new Contact( FirstName = 'John', LastName = 'Smith' );
+        Contact secondContact = new Contact( FirstName = 'John', LastName = 'Smith' );
+        Account account1 = new Account( Name = 'Account 1' );
+        Account account2 = new Account( Name = 'Account 2' );
+
+        unitOfWork.registerNew( firstContact );
+        unitOfWork.registerNew( secondContact );
+
+        Test.startTest();
+        unitOfWork.registerRelationship( firstContact, Contact.AccountId, account1 );
+        unitOfWork.registerRelationship( secondContact, Contact.AccountId, account2 );
+        Test.stopTest();
+
+        Assert.areEqual( 2, unitOfWork.relationships.relationshipsBySobjectType.get( Contact.SObjectType ).size(), 'registerRelationship, when two distinct new records with equal field values are registered on the same field, should register both relationships' );
+    }
+
+    @IsTest
+    private static void registerRelationship_whenMoreRelationshipsThanEqualNewRecordsRegisteredOnSameField_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        Contact firstContact = new Contact( FirstName = 'John', LastName = 'Smith' );
+        Contact secondContact = new Contact( FirstName = 'John', LastName = 'Smith' );
+        Account account1 = new Account( Name = 'Account 1' );
+        Account account2 = new Account( Name = 'Account 2' );
+        Account account3 = new Account( Name = 'Account 3' );
+
+        unitOfWork.registerNew( firstContact );
+        unitOfWork.registerNew( secondContact );
+        unitOfWork.registerRelationship( firstContact, Contact.AccountId, account1 );
+        unitOfWork.registerRelationship( secondContact, Contact.AccountId, account2 );
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            // A third registration on the same field with only two equal instances registered as new is a duplicate
+            unitOfWork.registerRelationship( firstContact, Contact.AccountId, account3 );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'registerRelationship, when more relationships than equal new records are registered on the same field, should throw an exception' );
+        Assert.areEqual( 'registerRelationship called with a relationship field that has already been registered for this record', thrownException.getMessage(), 'registerRelationship, when more relationships than equal new records are registered on the same field, should throw a ValidationException' );
+    }
+
+    @IsTest
     private static void registerRelationship_whenParentRecordAlreadyRegisteredForDeletion_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Contact testContact = new Contact( FirstName = 'John', LastName = 'Smith' );
@@ -953,6 +1029,69 @@ private class UnitOfWorkTest {
         // Note that the Savepoint creation consumes 1 DML statement but no DML rows
         Assert.areEqual( dmlStatementsIssuedBefore + 3, dmlStatementsIssuedAfter, 'commitWork, when called with an after relationship registration, should issue 2 only DML statements' );
         Assert.areEqual( dmlRowsIssuedBefore + 4, dmlRowsIssuedAfter, 'commitWork, when called with an after relationship registration, should issue only 4 DML rows' );
+    }
+
+    @IsTest
+    private static void commitWork_whenDistinctNewRecordsWithEqualFieldValuesHaveDifferentParents_insertsEachWithItsOwnParent() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType, Contact.SObjectType }, new Set<SobjectField> { Contact.AccountId } );
+
+        Account firstAccount = new Account( Name = 'First Account' );
+        Account secondAccount = new Account( Name = 'Second Account' );
+        // Identical field values on two separate instances, one child per parent
+        Contact firstContact = new Contact( FirstName = 'Same', LastName = 'Values' );
+        Contact secondContact = new Contact( FirstName = 'Same', LastName = 'Values' );
+
+        unitOfWork.registerNew( firstAccount );
+        unitOfWork.registerNew( secondAccount );
+        unitOfWork.registerNew( firstContact );
+        unitOfWork.registerNew( secondContact );
+        unitOfWork.registerRelationship( firstContact, Contact.AccountId, firstAccount );
+        unitOfWork.registerRelationship( secondContact, Contact.AccountId, secondAccount );
+
+        Test.startTest();
+        System.runAs( testUser ) {
+            unitOfWork.commitWork();
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( firstContact.Id, 'commitWork, when two distinct new records with equal field values have different parents, should insert the first child' );
+        Assert.isNotNull( secondContact.Id, 'commitWork, when two distinct new records with equal field values have different parents, should insert the second child' );
+        Assert.areNotEqual( firstContact.Id, secondContact.Id, 'commitWork, when two distinct new records with equal field values have different parents, should insert two separate rows' );
+        Assert.areEqual( firstAccount.Id, firstContact.AccountId, 'commitWork, when two distinct new records with equal field values have different parents, should set the first child to its own parent' );
+        Assert.areEqual( secondAccount.Id, secondContact.AccountId, 'commitWork, when two distinct new records with equal field values have different parents, should set the second child to its own parent' );
+
+        Map<Id, Contact> insertedContactsById = new Map<Id, Contact>( [ SELECT Id, AccountId FROM Contact WHERE Id IN ( :firstContact.Id, :secondContact.Id ) ] );
+        Assert.areEqual( 2, insertedContactsById.size(), 'commitWork, when two distinct new records with equal field values have different parents, should persist both children' );
+        Assert.areEqual( firstAccount.Id, insertedContactsById.get( firstContact.Id ).AccountId, 'commitWork, when two distinct new records with equal field values have different parents, should persist the first child under its own parent' );
+        Assert.areEqual( secondAccount.Id, insertedContactsById.get( secondContact.Id ).AccountId, 'commitWork, when two distinct new records with equal field values have different parents, should persist the second child under its own parent' );
+    }
+
+    @IsTest
+    private static void commitWork_whenDistinctNewRecordsWithEqualFieldValuesShareAParent_insertsBoth() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType, Contact.SObjectType }, new Set<SobjectField> { Contact.AccountId } );
+
+        Account parentAccount = new Account( Name = 'Parent Account' );
+        Contact firstContact = new Contact( FirstName = 'Same', LastName = 'Values' );
+        Contact secondContact = new Contact( FirstName = 'Same', LastName = 'Values' );
+
+        unitOfWork.registerNew( parentAccount );
+        unitOfWork.registerNew( firstContact );
+        unitOfWork.registerNew( secondContact );
+        unitOfWork.registerRelationship( firstContact, Contact.AccountId, parentAccount );
+        unitOfWork.registerRelationship( secondContact, Contact.AccountId, parentAccount );
+
+        Test.startTest();
+        System.runAs( testUser ) {
+            unitOfWork.commitWork();
+        }
+        Test.stopTest();
+
+        Assert.areNotEqual( firstContact.Id, secondContact.Id, 'commitWork, when two distinct new records with equal field values share a parent, should insert two separate rows' );
+        Assert.areEqual( 2, [ SELECT COUNT() FROM Contact WHERE AccountId = :parentAccount.Id ], 'commitWork, when two distinct new records with equal field values share a parent, should persist both children under the parent' );
     }
 
     @IsTest
