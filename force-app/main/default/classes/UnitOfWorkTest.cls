@@ -1160,6 +1160,37 @@ private class UnitOfWorkTest {
     }
 
     @IsTest
+    private static void commitWork_whenTwoThousandRelatedRecordsAreRegistered_commitsWithinCpuLimit() {
+        // Regression for quadratic relationship application: before the fix, 2,000 relationships on one
+        // SObject type exceeded the synchronous CPU limit inside commitWork
+        UnitOfWork unitOfWork = new UnitOfWork();
+
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType, Contact.SObjectType }, new Set<SobjectField> { Contact.AccountId } );
+
+        Integer recordCount = 2000;
+        List<Account> accounts = new List<Account>();
+        List<Contact> contacts = new List<Contact>();
+        for ( Integer i = 0; i < recordCount; i++ ) {
+            accounts.add( new Account( Name = 'Account ' + i ) );
+            contacts.add( new Contact( LastName = 'Contact ' + i ) );
+        }
+        unitOfWork.registerNew( accounts );
+        unitOfWork.registerNew( contacts );
+        for ( Integer i = 0; i < recordCount; i++ ) {
+            unitOfWork.registerRelationship( contacts[ i ], Contact.AccountId, accounts[ i ] );
+        }
+
+        Test.startTest();
+        System.runAs( testUser ) {
+            unitOfWork.commitWork();
+        }
+        Test.stopTest();
+
+        Assert.areEqual( recordCount, [ SELECT COUNT() FROM Contact WHERE AccountId IN :accounts ], 'commitWork, when two thousand related records are registered, should insert every child under its parent' );
+        Assert.areEqual( accounts[ recordCount - 1 ].Id, contacts[ recordCount - 1 ].AccountId, 'commitWork, when two thousand related records are registered, should set each child\'s lookup to its own parent' );
+    }
+
+    @IsTest
     private static void commitWork_whenCalledAfterDeletionRegisteredWhereHardDependencyPreventsDeletion_throwsExceptionAndRollsBack() {
         // Contract is not available in every org, so this test uses dynamic references to avoid
         // introducing a compile-time dependency on the object while still exercising the same rollback scenario.
