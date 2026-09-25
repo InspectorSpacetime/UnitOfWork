@@ -661,33 +661,59 @@ private class UnitOfWorkTest {
     }
 
     @IsTest
-    private static void registerRelationship_whenMoreRelationshipsThanEqualNewRecordsRegisteredOnSameField_throwsValidationException() {
+    private static void registerRelationship_whenSameInstanceRegisteredTwiceWhileEqualValuedSiblingIsRegistered_throwsValidationException() {
         UnitOfWork unitOfWork = new UnitOfWork();
         Contact firstContact = new Contact( FirstName = 'John', LastName = 'Smith' );
         Contact secondContact = new Contact( FirstName = 'John', LastName = 'Smith' );
         Account account1 = new Account( Name = 'Account 1' );
         Account account2 = new Account( Name = 'Account 2' );
-        Account account3 = new Account( Name = 'Account 3' );
 
         unitOfWork.registerNew( firstContact );
         unitOfWork.registerNew( secondContact );
         unitOfWork.registerRelationship( firstContact, Contact.AccountId, account1 );
-        unitOfWork.registerRelationship( secondContact, Contact.AccountId, account2 );
 
         UnitOfWork.ValidationException thrownException;
 
         Test.startTest();
         try {
-            // A third registration on the same field with only two equal instances registered as new is a duplicate
-            unitOfWork.registerRelationship( firstContact, Contact.AccountId, account3 );
+            // The same instance again, while its equal-valued sibling has no relationship yet: still a duplicate
+            unitOfWork.registerRelationship( firstContact, Contact.AccountId, account2 );
         }
         catch ( UnitOfWork.ValidationException ex ) {
             thrownException = ex;
         }
         Test.stopTest();
 
-        Assert.isNotNull( thrownException, 'registerRelationship, when more relationships than equal new records are registered on the same field, should throw an exception' );
-        Assert.areEqual( 'registerRelationship called with a relationship field that has already been registered for this record', thrownException.getMessage(), 'registerRelationship, when more relationships than equal new records are registered on the same field, should throw a ValidationException' );
+        Assert.isNotNull( thrownException, 'registerRelationship, when the same instance is registered twice while an equal-valued sibling is registered, should throw an exception' );
+        Assert.areEqual( 'registerRelationship called with a relationship field that has already been registered for this record', thrownException.getMessage(), 'registerRelationship, when the same instance is registered twice while an equal-valued sibling is registered, should throw a ValidationException' );
+    }
+
+    @IsTest
+    private static void registerRelationship_whenSameFieldRegisteredTwiceForDifferentInstancesOfSameExistingRecord_throwsValidationException() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+        Id existingContactId = generateId( Contact.SObjectType );
+        // Two instances carrying the same Id with different field values are the same existing record
+        Contact firstInstance = new Contact( Id = existingContactId, FirstName = 'John' );
+        Contact secondInstance = new Contact( Id = existingContactId, LastName = 'Smith' );
+        Account account1 = new Account( Name = 'Account 1' );
+        Account account2 = new Account( Name = 'Account 2' );
+
+        unitOfWork.registerDirty( firstInstance );
+        unitOfWork.registerRelationship( firstInstance, Contact.AccountId, account1 );
+
+        UnitOfWork.ValidationException thrownException;
+
+        Test.startTest();
+        try {
+            unitOfWork.registerRelationship( secondInstance, Contact.AccountId, account2 );
+        }
+        catch ( UnitOfWork.ValidationException ex ) {
+            thrownException = ex;
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( thrownException, 'registerRelationship, when the same field is registered twice for different instances of the same existing record, should throw an exception' );
+        Assert.areEqual( 'registerRelationship called with a relationship field that has already been registered for this record', thrownException.getMessage(), 'registerRelationship, when the same field is registered twice for different instances of the same existing record, should throw a ValidationException' );
     }
 
     @IsTest
@@ -1092,6 +1118,45 @@ private class UnitOfWorkTest {
 
         Assert.areNotEqual( firstContact.Id, secondContact.Id, 'commitWork, when two distinct new records with equal field values share a parent, should insert two separate rows' );
         Assert.areEqual( 2, [ SELECT COUNT() FROM Contact WHERE AccountId = :parentAccount.Id ], 'commitWork, when two distinct new records with equal field values share a parent, should persist both children under the parent' );
+    }
+
+    @IsTest
+    private static void commitWork_whenNewRecordsWithEqualFieldValuesHaveIntraSobjectRelationship_insertsParentBeforeChild() {
+        UnitOfWork unitOfWork = new UnitOfWork();
+
+        User testUser = createUserWithPermissionsForSobjectsAndFields( new Set<SobjectType> { Account.SObjectType, Contact.SObjectType }, new Set<SobjectField> { Account.ParentId } );
+
+        // Identical field values on the parent and the child: value-keyed wave sorting would collapse
+        // them into one node and either misorder the insert or report a false circular dependency
+        Account parentAccount = new Account( Name = 'Same Name' );
+        Account childAccount = new Account( Name = 'Same Name' );
+
+        unitOfWork.registerNew( parentAccount );
+        unitOfWork.registerNew( childAccount );
+        unitOfWork.registerRelationship( childAccount, Account.ParentId, parentAccount );
+
+        Integer dmlStatementsIssuedBefore;
+        Integer dmlStatementsIssuedAfter;
+
+        Test.startTest();
+        System.runAs( testUser ) {
+            dmlStatementsIssuedBefore = Limits.getDmlStatements();
+
+            unitOfWork.commitWork();
+
+            dmlStatementsIssuedAfter = Limits.getDmlStatements();
+        }
+        Test.stopTest();
+
+        Assert.isNotNull( parentAccount.Id, 'commitWork, when new records with equal field values have an intra-SObject relationship, should insert the parent' );
+        Assert.isNotNull( childAccount.Id, 'commitWork, when new records with equal field values have an intra-SObject relationship, should insert the child' );
+        Assert.areNotEqual( parentAccount.Id, childAccount.Id, 'commitWork, when new records with equal field values have an intra-SObject relationship, should insert two separate rows' );
+        Assert.areEqual( parentAccount.Id, childAccount.ParentId, 'commitWork, when new records with equal field values have an intra-SObject relationship, should set the child\'s parent' );
+        Assert.areEqual( parentAccount.Id, [ SELECT ParentId FROM Account WHERE Id = :childAccount.Id ].ParentId, 'commitWork, when new records with equal field values have an intra-SObject relationship, should persist the child under the parent' );
+        Assert.isNull( [ SELECT ParentId FROM Account WHERE Id = :parentAccount.Id ].ParentId, 'commitWork, when new records with equal field values have an intra-SObject relationship, should leave the parent without a parent' );
+
+        // Note that the Savepoint creation consumes 1 DML statement: two waves means two inserts
+        Assert.areEqual( dmlStatementsIssuedBefore + 3, dmlStatementsIssuedAfter, 'commitWork, when new records with equal field values have an intra-SObject relationship, should insert the parent and the child in separate waves' );
     }
 
     @IsTest

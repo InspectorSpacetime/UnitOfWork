@@ -158,33 +158,10 @@ public with sharing class UnitOfWork
         DescribeFieldResult fieldDescribe = relationshipField.getDescribe();
 
         validate( fieldDescribe.getSobjectType() == recordSobjectType, 'registerRelationship called with a relationship field from a different SobjectType than the record SobjectType' );
-        // Apex compares sObjects with == by field value, not by reference, so two distinct new
-        // instances with identical field values are indistinguishable here. They are fungible
-        // until their lookups are set, so allow one relationship on this field per registered
-        // instance rather than one per value. A record that was not registered as new (a dirty
-        // record, whose Id already makes it distinct) keeps the one-per-record rule.
-        Integer relationshipsAlreadyRegistered = relationships.countRelationships( record, relationshipField );
-        Integer equalInstancesRegisteredAsNew = Math.max( 1, countEqualNewRecords( record ) );
-        validate( relationshipsAlreadyRegistered < equalInstancesRegisteredAsNew, 'registerRelationship called with a relationship field that has already been registered for this record' );
+        validate( !relationships.hasRelationship( record, relationshipField ), 'registerRelationship called with a relationship field that has already been registered for this record' );
         validate( !isRegisteredForDeletion( parentRecord ), 'registerRelationship called with a parent record that has been registered for deletion' );
 
         relationships.addRelationship( record, relationshipField, parentRecord );
-    }
-
-    // Counts the records registered as new for the record's SObjectType whose field values equal
-    // the given record's. Distinct instances with equal values count separately because
-    // registerNew keeps them in a List, which does not collapse equal values the way a Set would.
-    private Integer countEqualNewRecords( SObject record ) {
-        Integer equalRecordCount = 0;
-        List<SObject> newRecordsForType = newRecordsBySobjectType.get( record.getSObjectType() );
-        if ( newRecordsForType != null ) {
-            for ( SObject thisNewRecord : newRecordsForType ) {
-                if ( thisNewRecord == record ) {
-                    equalRecordCount++;
-                }
-            }
-        }
-        return equalRecordCount;
     }
 
     /**
@@ -365,28 +342,37 @@ public with sharing class UnitOfWork
 
         // Collect intra-type priority dependencies only for new same-type parents in this insert batch.
         // Existing same-type parents already have Ids and do not constrain wave ordering.
-        Set<SObject> recordsToInsertSet = new Set<SObject>( recordsToInsert );
-        Map<SObject, Set<SObject>> intraTypeParentsByRecord = new Map<SObject, Set<SObject>>();
+        // Records are tracked by their position in recordsToInsert, not as Set or Map keys: Apex keys
+        // sObjects by field value, so two distinct records with equal fields would collapse into one.
+        Map<Integer, Set<Integer>> intraTypeParentPositionsByRecordPosition = new Map<Integer, Set<Integer>>();
         if ( relationships.relationshipsBySobjectType.containsKey( sobjectType ) ) {
             for ( Relationship thisRelationship : relationships.relationshipsBySobjectType.get( sobjectType ) ) {
-                if ( secondaryFields.contains( thisRelationship.getRelationshipField() ) || thisRelationship.getParentRecord().getSObjectType() != sobjectType || !recordsToInsertSet.contains( thisRelationship.getParentRecord() ) ) {
+                if ( secondaryFields.contains( thisRelationship.getRelationshipField() ) || thisRelationship.getParentRecord().getSObjectType() != sobjectType ) {
+                    continue;
+                }
+                Integer parentPosition = positionOf( recordsToInsert, thisRelationship.getParentRecord() );
+                if ( parentPosition == null ) {
+                    continue;
+                }
+                Integer recordPosition = positionOf( recordsToInsert, thisRelationship.getRecord() );
+                if ( recordPosition == null ) {
                     continue;
                 }
 
-                if ( !intraTypeParentsByRecord.containsKey( thisRelationship.getRecord() ) ) {
-                    intraTypeParentsByRecord.put( thisRelationship.getRecord(), new Set<SObject>() );
+                if ( !intraTypeParentPositionsByRecordPosition.containsKey( recordPosition ) ) {
+                    intraTypeParentPositionsByRecordPosition.put( recordPosition, new Set<Integer>() );
                 }
-                intraTypeParentsByRecord.get( thisRelationship.getRecord() ).add( thisRelationship.getParentRecord() );
+                intraTypeParentPositionsByRecordPosition.get( recordPosition ).add( parentPosition );
             }
         }
 
-        if ( intraTypeParentsByRecord.isEmpty() ) {
+        if ( intraTypeParentPositionsByRecordPosition.isEmpty() ) {
             // No intra-type dependencies: apply all priority relationships and insert in one batch
             relationships.applyPriorityRelationshipsForRecords( sobjectType, secondaryFields, recordsToInsert );
             insertRecords( recordsToInsert, sobjectType );
         } else {
             // Split into waves so that parent records are inserted before their children
-            List<List<SObject>> waves = topologicalSortRecords( recordsToInsert, intraTypeParentsByRecord );
+            List<List<SObject>> waves = topologicalSortRecords( recordsToInsert, intraTypeParentPositionsByRecordPosition );
             for ( List<SObject> wave : waves ) {
                 relationships.applyPriorityRelationshipsForRecords( sobjectType, secondaryFields, wave );
                 insertRecords( wave, sobjectType );
@@ -394,53 +380,63 @@ public with sharing class UnitOfWork
         }
     }
 
-    // Topologically sorts records within a single SObject type into insertion waves.
-    // intraTypeParentsByRecord maps each child record to the same-type parent records it depends on.
-    // Returns a list of waves; all records in a wave can be inserted in a single DML statement.
-    private List<List<SObject>> topologicalSortRecords( List<SObject> records, Map<SObject, Set<SObject>> intraTypeParentsByRecord ) {
-        Map<SObject, Integer> inDegreeByRecord = new Map<SObject, Integer>();
-        Map<SObject, List<SObject>> childrenByRecord = new Map<SObject, List<SObject>>();
+    // Finds the position of the given instance in the list by identity (===), or null when absent.
+    private Integer positionOf( List<SObject> records, SObject record ) {
+        for ( Integer position = 0; position < records.size(); position++ ) {
+            if ( records[ position ] === record ) {
+                return position;
+            }
+        }
+        return null;
+    }
 
-        for ( SObject thisRecord : records ) {
-            inDegreeByRecord.put( thisRecord, inDegreeByRecord.get( thisRecord ) ?? 0 );
-            childrenByRecord.put( thisRecord, childrenByRecord.get( thisRecord ) ?? new List<SObject>() );
+    // Topologically sorts records within a single SObject type into insertion waves.
+    // intraTypeParentPositionsByRecordPosition maps each child record's position in records to the
+    // positions of the same-type parent records it depends on.
+    // Returns a list of waves; all records in a wave can be inserted in a single DML statement.
+    private List<List<SObject>> topologicalSortRecords( List<SObject> records, Map<Integer, Set<Integer>> intraTypeParentPositionsByRecordPosition ) {
+        Map<Integer, Integer> inDegreeByPosition = new Map<Integer, Integer>();
+        Map<Integer, List<Integer>> childPositionsByPosition = new Map<Integer, List<Integer>>();
+
+        for ( Integer position = 0; position < records.size(); position++ ) {
+            inDegreeByPosition.put( position, 0 );
+            childPositionsByPosition.put( position, new List<Integer>() );
         }
 
-        for ( SObject record : records ) {
-            if ( intraTypeParentsByRecord.containsKey( record ) ) {
-                for ( SObject parent : intraTypeParentsByRecord.get( record ) ) {
-                    inDegreeByRecord.put( record, inDegreeByRecord.get( record ) + 1 );
-                    if ( !childrenByRecord.containsKey( parent ) ) {
-                        childrenByRecord.put( parent, new List<SObject>() );
-                    }
-                    childrenByRecord.get( parent ).add( record );
-                }
+        for ( Integer position : intraTypeParentPositionsByRecordPosition.keySet() ) {
+            for ( Integer parentPosition : intraTypeParentPositionsByRecordPosition.get( position ) ) {
+                inDegreeByPosition.put( position, inDegreeByPosition.get( position ) + 1 );
+                childPositionsByPosition.get( parentPosition ).add( position );
             }
         }
 
-        List<SObject> currentWave = new List<SObject>();
-        for ( SObject thisRecord : records ) {
-            if ( inDegreeByRecord.get( thisRecord ) == 0 ) {
-                currentWave.add( thisRecord );
+        List<Integer> currentWavePositions = new List<Integer>();
+        for ( Integer position = 0; position < records.size(); position++ ) {
+            if ( inDegreeByPosition.get( position ) == 0 ) {
+                currentWavePositions.add( position );
             }
         }
 
         Integer recordsPlacedInWaves = 0;
         List<List<SObject>> waves = new List<List<SObject>>();
-        while ( !currentWave.isEmpty() ) {
-            waves.add( currentWave );
-            recordsPlacedInWaves += currentWave.size();
-            List<SObject> nextWave = new List<SObject>();
-            for ( SObject thisRecord : currentWave ) {
-                for ( SObject thisChildRecord : childrenByRecord.get( thisRecord ) ) {
-                    Integer newInDegree = inDegreeByRecord.get( thisChildRecord ) - 1;
-                    inDegreeByRecord.put( thisChildRecord, newInDegree );
+        while ( !currentWavePositions.isEmpty() ) {
+            List<SObject> wave = new List<SObject>();
+            for ( Integer position : currentWavePositions ) {
+                wave.add( records[ position ] );
+            }
+            waves.add( wave );
+            recordsPlacedInWaves += wave.size();
+            List<Integer> nextWavePositions = new List<Integer>();
+            for ( Integer position : currentWavePositions ) {
+                for ( Integer childPosition : childPositionsByPosition.get( position ) ) {
+                    Integer newInDegree = inDegreeByPosition.get( childPosition ) - 1;
+                    inDegreeByPosition.put( childPosition, newInDegree );
                     if ( newInDegree == 0 ) {
-                        nextWave.add( thisChildRecord );
+                        nextWavePositions.add( childPosition );
                     }
                 }
             }
-            currentWave = nextWave;
+            currentWavePositions = nextWavePositions;
         }
 
         if ( recordsPlacedInWaves != records.size() ) {
@@ -482,15 +478,15 @@ public with sharing class UnitOfWork
     // before their update DML so that lookup fields are set correctly.
     private void applyPriorityRelationshipsForDirtyRecordsOfSobjectType( SObjectType sobjectType ) {
         if ( relationships.relationshipsBySobjectType.containsKey( sobjectType ) ) {
-            Set<SObject> newRecordsForType = newRecordsBySobjectType.containsKey( sobjectType )
-                ? new Set<SObject>( newRecordsBySobjectType.get( sobjectType ) )
-                : new Set<SObject>();
+            List<SObject> newRecordsForType = newRecordsBySobjectType.containsKey( sobjectType )
+                ? newRecordsBySobjectType.get( sobjectType )
+                : new List<SObject>();
 
             for ( Relationship thisRelationship : relationships.relationshipsBySobjectType.get( sobjectType ) ) {
                 if ( secondaryFields.contains( thisRelationship.getRelationshipField() ) ) {
                     continue; // handled by applySecondaryRelationships
                 }
-                if ( newRecordsForType.contains( thisRelationship.getRecord() ) ) {
+                if ( positionOf( newRecordsForType, thisRelationship.getRecord() ) != null ) {
                     continue; // already applied during insert wave
                 }
 
@@ -689,26 +685,38 @@ public with sharing class UnitOfWork
         }
 
         /**
-         * Counts the relationships registered on the given field for records equal to the given record.
-         * Records are compared with ==, which for sObjects compares field values, so distinct instances
-         * with equal values are counted together; registerRelationship reconciles that count against
-         * the number of equal instances registered as new.
-         * @param record The record to count relationships for.
-         * @param relationshipField The relationship field to count.
-         * @return The number of relationships registered on the field for records equal to the given record.
+         * Checks if a record has a relationship.
+         * @param record The record to check for a relationship.
+         * @param relationshipField The relationship field to check for.
+         * @return True if the record has a relationship, false otherwise.
          */
-        public Integer countRelationships( SObject record, SObjectField relationshipField ) {
-            Integer relationshipCount = 0;
+        public Boolean hasRelationship( SObject record, SObjectField relationshipField ) {
             SobjectType recordSobjectType = record.getSObjectType();
             if ( !relationshipsBySobjectType.containsKey( recordSobjectType ) ) {
-                return relationshipCount;
+                return false;
             }
             for ( Relationship thisRelationship : relationshipsBySobjectType.get( recordSobjectType ) ) {
-                if ( thisRelationship.getRecord() == record && thisRelationship.getRelationshipField() == relationshipField ) {
-                    relationshipCount++;
+                if ( isSameRecord( thisRelationship.getRecord(), record ) && thisRelationship.getRelationshipField() == relationshipField ) {
+                    return true;
                 }
             }
-            return relationshipCount;
+            return false;
+        }
+
+        /**
+         * Identity, not value: Apex == compares sObjects by field value, so two distinct new instances
+         * with equal fields would otherwise read as one record. A new record is the same record only
+         * when it is the same instance (===); an existing record is the same record when the Ids match,
+         * whichever instance carries the Id.
+         * @param firstRecord The first record.
+         * @param secondRecord The second record.
+         * @return True if both refer to the same record, false otherwise.
+         */
+        private Boolean isSameRecord( SObject firstRecord, SObject secondRecord ) {
+            if ( firstRecord === secondRecord ) {
+                return true;
+            }
+            return firstRecord.Id != null && firstRecord.Id == secondRecord.Id;
         }
 
         /**
@@ -725,7 +733,7 @@ public with sharing class UnitOfWork
 
             for ( SObject thisRecord : recordsInWave ) {
                 for ( Relationship rel : relationshipsBySobjectType.get( sobjectType ) ) {
-                    if ( rel.getRecord() != thisRecord ) {
+                    if ( !isSameRecord( rel.getRecord(), thisRecord ) ) {
                         continue;
                     }
                     if ( secondaryFields.contains( rel.getRelationshipField() ) ) {
